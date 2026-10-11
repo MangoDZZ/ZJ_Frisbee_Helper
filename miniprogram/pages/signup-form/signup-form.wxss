@@ -1,0 +1,29 @@
+.textarea {
+  width: 100%;
+  height: 160rpx;
+  box-sizing: border-box;
+}
+
+.level-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20rpx 24rpx;
+  border-radius: 12rpx;
+  background: #f4f5f7;
+  margin-bottom: 12rpx;
+  border: 2rpx solid transparent;
+}
+.level-on {
+  background: #eef7f1;
+  border-color: #1f6f4a;
+}
+.level-main {
+  display: flex;
+  flex-direction: column;
+}
+.level-check {
+  color: #1f6f4a;
+  font-size: 34rpx;
+  font-weight: 600;
+}

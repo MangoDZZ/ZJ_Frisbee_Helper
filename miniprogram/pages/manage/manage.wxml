@@ -1,0 +1,105 @@
+<view class="page">
+  <view wx:if="{{failMessage}}" class="banner banner-error">{{failMessage}}</view>
+  <view wx:if="{{loading}}" class="empty">加载中…</view>
+
+  <block wx:elif="{{event && !failMessage}}">
+    <!-- 概览 -->
+    <view class="card">
+      <view class="row-between">
+        <text class="card-title">{{event.name}}</text>
+        <text class="tag tag-{{event.status}}">{{statusText}}</text>
+      </view>
+      <view class="card-meta">{{summary}} · 上限 {{event.capacity}} 人 · 分 {{event.teamCount}} 队</view>
+
+      <view class="bars gap">
+        <view wx:for="{{levelBars}}" wx:key="level" class="bar-row">
+          <text class="bar-label">{{item.level}} 级</text>
+          <view class="bar-track">
+            <view class="bar-fill" style="width:{{item.percent}}%"></view>
+          </view>
+          <text class="bar-count">{{item.count}}</text>
+        </view>
+      </view>
+
+      <view class="btn-bar gap">
+        <button class="btn btn-ghost btn-sm" bindtap="editEvent">编辑活动</button>
+        <button class="btn btn-ghost btn-sm" bindtap="toggleSignup">
+          {{event.status === 'open' ? '关闭报名' : '重开报名'}}
+        </button>
+      </view>
+    </view>
+
+    <!-- 分队约束 -->
+    <view class="card">
+      <view class="card-title">分队约束</view>
+      <view class="field-hint">同队用于情侣、车友；拆开用于水平过高的老搭档</view>
+
+      <view wx:if="{{constraints.length > 0}}" class="gap">
+        <view wx:for="{{constraints}}" wx:key="_id" class="cons-row">
+          <view class="cons-main">
+            <text class="tag {{item.type === 'together' ? 'tag-open' : 'tag-full'}}">{{item.typeText}}</text>
+            <text class="cons-names">{{item.names}}</text>
+          </view>
+          <text class="cons-del" data-index="{{index}}" bindtap="removeConstraint">删除</text>
+        </view>
+      </view>
+      <view wx:else class="muted small gap">还没有约束</view>
+
+      <view wx:if="{{!picking}}" class="btn-bar gap">
+        <button class="btn btn-plain btn-sm" data-type="together" bindtap="startPick">＋ 必须同队</button>
+        <button class="btn btn-plain btn-sm" data-type="apart" bindtap="startPick">＋ 必须拆开</button>
+      </view>
+
+      <!-- 选人面板 -->
+      <view wx:if="{{picking}}" class="pick-panel gap">
+        <view class="row-between">
+          <text class="strong">选择「{{pickTypeText}}」的人</text>
+          <text class="muted small" bindtap="cancelPick">取消</text>
+        </view>
+        <view class="muted small">{{pickedNames || '至少选 2 个人'}}</view>
+        <view class="pick-grid gap">
+          <view wx:for="{{roster}}" wx:key="_id"
+                class="pick-item {{pickedIds.indexOf(item._id) >= 0 ? 'pick-on' : ''}}"
+                data-id="{{item._id}}" bindtap="togglePick">
+            {{item.name}}<text class="pick-sub">{{item.genderText}}{{item.level}}</text>
+          </view>
+        </view>
+        <button class="btn btn-sm gap" bindtap="confirmPick">确认添加</button>
+      </view>
+    </view>
+
+    <!-- 报名名单 -->
+    <view class="card">
+      <view class="row-between">
+        <text class="card-title">报名名单</text>
+        <text class="muted small">点一行可改水平</text>
+      </view>
+      <view wx:if="{{roster.length === 0}}" class="muted small gap">还没有人报名</view>
+      <view wx:for="{{roster}}" wx:key="_id" class="person-row"
+            data-index="{{index}}" bindtap="editLevel">
+        <text class="person-seq">{{item.seq}}</text>
+        <view class="person-main">
+          <view>
+            <text class="strong">{{item.name}}</text>
+            <text class="muted small">　{{item.genderText}}</text>
+          </view>
+          <view wx:if="{{item.remark}}" class="muted small">{{item.remark}}</view>
+          <view wx:if="{{item.phone}}" class="muted small">{{item.phone}}</view>
+        </view>
+        <view class="person-level">
+          <text class="{{item.overridden ? 'level-fixed' : ''}}">{{item.levelText}}</text>
+          <text wx:if="{{item.overridden}}" class="muted small">已调整</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="footer-spacer"></view>
+  </block>
+</view>
+
+<view wx:if="{{event && !failMessage && !loading}}" class="footer-bar">
+  <button wx:if="{{event.status === 'divided'}}" class="btn btn-plain" bindtap="viewDivision">查看分队</button>
+  <button class="btn" bindtap="runDivision">
+    {{event.status === 'divided' ? '重新分队' : '开始分队'}}
+  </button>
+</view>

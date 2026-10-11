@@ -1,0 +1,26 @@
+.info-line {
+  display: flex;
+  margin-top: 12rpx;
+  font-size: 28rpx;
+  color: #1a1d20;
+}
+.info-key {
+  width: 88rpx;
+  flex: none;
+  color: #8a9099;
+  font-size: 26rpx;
+}
+.notes {
+  margin-top: 20rpx;
+  padding-top: 20rpx;
+  border-top: 2rpx solid #f0f1f3;
+  color: #4b5563;
+  font-size: 26rpx;
+  white-space: pre-wrap;
+}
+.team-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 14rpx;
+}

@@ -1,0 +1,46 @@
+.team-card {
+  border-left: 8rpx solid #1f6f4a;
+}
+
+.members {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14rpx;
+}
+.member {
+  display: flex;
+  align-items: center;
+  padding: 12rpx 20rpx;
+  border-radius: 10rpx;
+  background: #f4f5f7;
+  font-size: 27rpx;
+  border: 2rpx solid transparent;
+}
+.member-on {
+  background: #fff6e5;
+  border-color: #d99b1c;
+}
+.member-lv {
+  margin-left: 10rpx;
+  font-size: 22rpx;
+  color: #8a9099;
+}
+
+/* 性别用小圆点区分，比写"男/女"更省横向空间 */
+.dot {
+  width: 14rpx;
+  height: 14rpx;
+  border-radius: 50%;
+  margin-right: 12rpx;
+  flex: none;
+}
+.dot-m { background: #3b82c4; }
+.dot-f { background: #c4517e; }
+.dot-u { background: #b0b5bd; }
+
+.hint-card {
+  text-align: center;
+  color: #8a9099;
+  font-size: 24rpx;
+  padding: 10rpx 0 20rpx;
+}

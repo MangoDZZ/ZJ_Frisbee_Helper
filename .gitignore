@@ -1,0 +1,11 @@
+node_modules/
+cloudfunctions/*/node_modules/
+
+# 开发者工具的本地私有配置，含本机路径，不要提交
+project.private.config.json
+
+# 启动脚本，含明文 API 令牌，与本项目无关
+cld.ps1
+
+.DS_Store
+*.log

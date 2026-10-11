@@ -1,0 +1,96 @@
+<view class="page">
+  <view class="card">
+    <view class="field">
+      <view class="field-label">活动名称 <text class="req">*</text></view>
+      <input class="field-input" value="{{form.name}}" data-field="name"
+             bindinput="onInput" placeholder="例：周六晚 HAT 局" maxlength="40" />
+    </view>
+
+    <view class="field">
+      <view class="field-label">地点</view>
+      <input class="field-input" value="{{form.location}}" data-field="location"
+             bindinput="onInput" placeholder="球场名称" maxlength="60" />
+    </view>
+
+    <view class="field">
+      <view class="field-label">日期 <text class="req">*</text></view>
+      <picker mode="date" value="{{form.startDate}}" data-field="startDate" bindchange="onInput">
+        <view class="picker-value {{form.startDate ? '' : 'placeholder'}}">
+          {{form.startDate || '选择日期'}}
+        </view>
+      </picker>
+    </view>
+
+    <view class="field-row">
+      <view class="field field-half">
+        <view class="field-label">开始 <text class="req">*</text></view>
+        <picker mode="time" value="{{form.startTime}}" data-field="startTime" bindchange="onInput">
+          <view class="picker-value {{form.startTime ? '' : 'placeholder'}}">
+            {{form.startTime || '选择'}}
+          </view>
+        </picker>
+      </view>
+      <view class="field field-half">
+        <view class="field-label">结束</view>
+        <picker mode="time" value="{{form.endTime}}" data-field="endTime" bindchange="onInput">
+          <view class="picker-value {{form.endTime ? '' : 'placeholder'}}">
+            {{form.endTime || '选填'}}
+          </view>
+        </picker>
+      </view>
+    </view>
+
+    <view class="field-row">
+      <view class="field field-half">
+        <view class="field-label">队伍数 <text class="req">*</text></view>
+        <input class="field-input" value="{{form.teamCount}}" data-field="teamCount"
+               bindinput="onInput" type="number" maxlength="2" />
+      </view>
+      <view class="field field-half">
+        <view class="field-label">人数上限 <text class="req">*</text></view>
+        <input class="field-input" value="{{form.capacity}}" data-field="capacity"
+               bindinput="onInput" type="number" maxlength="3" />
+      </view>
+    </view>
+
+    <view class="field">
+      <view class="row-between">
+        <view class="field-label">报名截止</view>
+        <text wx:if="{{form.deadlineDate}}" class="muted small" bindtap="clearDeadline">清除</text>
+      </view>
+      <view class="field-row">
+        <picker class="field-half" mode="date" value="{{form.deadlineDate}}"
+                data-field="deadlineDate" bindchange="onInput">
+          <view class="picker-value {{form.deadlineDate ? '' : 'placeholder'}}">
+            {{form.deadlineDate || '选填日期'}}
+          </view>
+        </picker>
+        <picker class="field-half" mode="time" value="{{form.deadlineTime}}"
+                data-field="deadlineTime" bindchange="onInput">
+          <view class="picker-value {{form.deadlineTime ? '' : 'placeholder'}}">
+            {{form.deadlineTime || '选填时间'}}
+          </view>
+        </picker>
+      </view>
+      <view class="field-hint">不填则以活动开始时间为截止</view>
+    </view>
+
+    <view class="field">
+      <view class="field-label">说明</view>
+      <textarea class="field-input textarea" value="{{form.notes}}" data-field="notes"
+                bindinput="onInput" placeholder="费用、装备、集合方式等" maxlength="500" />
+    </view>
+  </view>
+
+  <view wx:if="{{editing}}" class="card">
+    <button class="btn btn-danger" bindtap="removeEvent">删除这场活动</button>
+  </view>
+
+  <view class="footer-spacer"></view>
+</view>
+
+<view class="footer-bar">
+  <button class="btn" bindtap="submit" disabled="{{submitting}}">
+    {{editing ? '保存修改' : '创建活动'}}
+  </button>
+</view>

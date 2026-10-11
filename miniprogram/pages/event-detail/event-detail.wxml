@@ -1,0 +1,63 @@
+<view class="page">
+  <view wx:if="{{failMessage}}" class="banner banner-error">{{failMessage}}</view>
+  <view wx:if="{{loading}}" class="empty">加载中…</view>
+
+  <block wx:elif="{{event}}">
+    <view class="card">
+      <view class="row-between">
+        <text class="card-title">{{event.name}}</text>
+        <text class="tag {{statusClass}}">{{statusText}}</text>
+      </view>
+      <view class="info-line"><text class="info-key">时间</text><text>{{timeText}}</text></view>
+      <view wx:if="{{event.location}}" class="info-line">
+        <text class="info-key">地点</text><text>{{event.location}}</text>
+      </view>
+      <view class="info-line">
+        <text class="info-key">报名</text>
+        <text>{{event.signupCount}} / {{event.capacity}} 人，分 {{event.teamCount}} 队</text>
+      </view>
+      <view wx:if="{{deadlineText}}" class="info-line">
+        <text class="info-key">截止</text><text>{{deadlineText}}</text>
+      </view>
+      <view wx:if="{{event.notes}}" class="notes">{{event.notes}}</view>
+    </view>
+
+    <!-- 我的报名状态 -->
+    <view wx:if="{{mySignup}}" class="card">
+      <view class="card-title">我的报名</view>
+      <view class="card-meta">
+        {{mySignup.name}} · {{myGenderText}} · {{myLevelText}}
+      </view>
+      <view wx:if="{{mySignup.phone}}" class="card-meta">{{mySignup.phone}}</view>
+      <view wx:if="{{mySignup.remark}}" class="card-meta">备注：{{mySignup.remark}}</view>
+      <view class="btn-bar gap">
+        <button wx:if="{{canSignup}}" class="btn btn-plain btn-sm" bindtap="goSignup">修改信息</button>
+        <button wx:if="{{event.status !== 'divided'}}" class="btn btn-danger btn-sm"
+                bindtap="cancelSignup">取消报名</button>
+      </view>
+    </view>
+
+    <!-- 已发布的分队结果 -->
+    <view wx:if="{{division}}" class="card" bindtap="goDivision">
+      <view class="row-between">
+        <text class="card-title">分队结果</text>
+        <text class="muted small">查看全部 ›</text>
+      </view>
+      <view wx:for="{{division.teams}}" wx:key="index" class="team-line">
+        <text class="strong">{{item.name}}</text>
+        <text class="muted small">
+          {{item.stats.count}}人 · {{item.stats.male}}男{{item.stats.female}}女 · 均分{{item.stats.avgLevel}}
+        </text>
+      </view>
+    </view>
+
+    <view class="footer-spacer"></view>
+  </block>
+</view>
+
+<view wx:if="{{event}}" class="footer-bar">
+  <button wx:if="{{isOwner}}" class="btn btn-plain" bindtap="goManage">管理台</button>
+  <button wx:if="{{!mySignup && canSignup}}" class="btn" bindtap="goSignup">我要报名</button>
+  <button wx:elif="{{!mySignup && !canSignup}}" class="btn" disabled>{{blockReason || '暂不可报名'}}</button>
+  <button wx:elif="{{mySignup && !isOwner}}" class="btn" disabled>已报名</button>
+</view>

@@ -1,0 +1,42 @@
+<view class="page">
+  <view wx:if="{{failMessage}}" class="banner banner-error">{{failMessage}}</view>
+  <view wx:if="{{loading}}" class="empty">加载中…</view>
+
+  <block wx:else>
+    <view class="section-title">我报名的活动</view>
+    <block wx:if="{{signups.length > 0}}">
+      <view wx:for="{{signups}}" wx:key="_id" class="card"
+            data-id="{{item.eventId}}" bindtap="openEvent">
+        <view class="row-between">
+          <text class="card-title">{{item.eventName}}</text>
+          <text class="tag {{item.statusClass}}">{{item.statusText}}</text>
+        </view>
+        <view class="card-meta">{{item.timeText}}</view>
+        <view wx:if="{{item.location}}" class="card-meta">{{item.location}}</view>
+        <view class="card-meta">{{item.meText}}</view>
+      </view>
+    </block>
+    <view wx:else class="card muted small">还没有报名任何活动</view>
+
+    <view class="section-title gap-lg">我创建的活动</view>
+    <block wx:if="{{owned.length > 0}}">
+      <view wx:for="{{owned}}" wx:key="_id" class="card">
+        <view class="row-between" data-id="{{item._id}}" bindtap="openEvent">
+          <text class="card-title">{{item.name}}</text>
+          <text class="tag {{item.statusClass}}">{{item.statusText}}</text>
+        </view>
+        <view class="card-meta">{{item.timeText}} · {{item.countText}}</view>
+        <view class="btn-bar gap">
+          <button class="btn btn-ghost btn-sm" data-id="{{item._id}}" bindtap="openEvent">详情</button>
+          <button class="btn btn-plain btn-sm" data-id="{{item._id}}" bindtap="goManage">管理台</button>
+        </view>
+      </view>
+    </block>
+    <view wx:else class="card">
+      <view class="muted small">还没有创建活动</view>
+      <button class="btn btn-plain btn-sm gap" bindtap="createEvent">创建一场 HAT 赛</button>
+    </view>
+
+    <view class="footer-spacer"></view>
+  </block>
+</view>

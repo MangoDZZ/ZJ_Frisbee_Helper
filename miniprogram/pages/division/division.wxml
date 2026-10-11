@@ -1,0 +1,62 @@
+<view class="page">
+  <view wx:if="{{failMessage}}" class="banner banner-error">{{failMessage}}</view>
+  <view wx:if="{{loading}}" class="empty">加载中…</view>
+
+  <block wx:elif="{{teams.length > 0}}">
+    <view class="card">
+      <view class="card-title">{{event.name}}</view>
+      <view class="card-meta">{{metaText}}</view>
+      <view class="card-meta">{{qualityText}}</view>
+      <view wx:if="{{isOwner && !division.published}}" class="banner banner-info gap">
+        参与者还看不到这份结果，确认后点「发布」
+      </view>
+    </view>
+
+    <view wx:for="{{warnings}}" wx:key="code" class="banner banner-warn">{{item.message}}</view>
+    <view wx:if="{{conflictText}}" class="banner banner-error">
+      当前名单与约束不符：{{conflictText}}
+    </view>
+
+    <view wx:if="{{isOwner && selectedName}}" class="banner banner-info" bindtap="clearSelection">
+      已选中 <text class="strong">{{selectedName}}</text>，点另一个队的人完成交换（点此取消）
+    </view>
+
+    <view wx:for="{{teams}}" wx:key="index" class="card team-card">
+      <view class="row-between">
+        <text class="card-title">{{item.name}}</text>
+        <text class="muted small">{{item.stats.count}} 人</text>
+      </view>
+      <view class="card-meta">{{item.statsText}}</view>
+      <view class="members gap">
+        <view wx:for="{{item.members}}" wx:for-item="m" wx:key="_id"
+              class="member {{selectedId === m._id ? 'member-on' : ''}}"
+              data-id="{{m._id}}" data-team="{{item.index}}" bindtap="tapMember">
+          <text class="dot {{m.genderClass}}"></text>
+          <text>{{m.name}}</text>
+          <text class="member-lv">{{m.level}}</text>
+        </view>
+      </view>
+    </view>
+
+    <view wx:if="{{isOwner}}" class="hint-card">
+      点两个不同队的人即可交换位置
+    </view>
+
+    <view class="footer-spacer"></view>
+  </block>
+
+  <view wx:elif="{{!failMessage}}" class="empty">
+    <view class="empty-title">还没有分队结果</view>
+    <view class="small">{{isOwner ? '点下方按钮开始分队' : '组织者还没有发布分队结果'}}</view>
+  </view>
+</view>
+
+<view wx:if="{{isOwner && !loading && !failMessage}}" class="footer-bar">
+  <button class="btn btn-plain" bindtap="reroll" disabled="{{busy}}">
+    {{teams.length > 0 ? '重新分队' : '开始分队'}}
+  </button>
+  <button wx:if="{{teams.length > 0 && !division.published}}" class="btn"
+          bindtap="publish" disabled="{{busy}}">发布给大家</button>
+  <button wx:elif="{{teams.length > 0 && division.published}}" class="btn btn-ghost"
+          bindtap="unpublish" disabled="{{busy}}">撤销发布</button>
+</view>

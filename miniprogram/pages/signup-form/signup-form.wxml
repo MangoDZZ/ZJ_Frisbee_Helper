@@ -1,0 +1,57 @@
+<view class="page">
+  <view class="card">
+    <view class="card-meta">{{eventName}}</view>
+
+    <view class="field gap">
+      <view class="field-label">姓名 / 昵称 <text class="req">*</text></view>
+      <input class="field-input" value="{{form.name}}" data-field="name"
+             bindinput="onInput" placeholder="队友怎么叫你" maxlength="20" />
+    </view>
+
+    <view class="field">
+      <view class="field-label">性别 <text class="req">*</text></view>
+      <view class="options">
+        <view class="option {{form.gender === 'M' ? 'option-on' : ''}}"
+              data-value="M" bindtap="pickGender">男</view>
+        <view class="option {{form.gender === 'F' ? 'option-on' : ''}}"
+              data-value="F" bindtap="pickGender">女</view>
+      </view>
+      <view class="field-hint">混合飞盘按性别均衡分队，所以这一项必填</view>
+    </view>
+
+    <view class="field">
+      <view class="field-label">我的水平 <text class="req">*</text></view>
+      <view wx:for="{{levelOptions}}" wx:key="value"
+            class="level-row {{form.selfLevel === item.value ? 'level-on' : ''}}"
+            data-value="{{item.value}}" bindtap="pickLevel">
+        <view class="level-main">
+          <text class="strong">{{item.value}} · {{item.label}}</text>
+          <text class="muted small">{{item.desc}}</text>
+        </view>
+        <text wx:if="{{form.selfLevel === item.value}}" class="level-check">✓</text>
+      </view>
+      <view class="field-hint">自评就好，组织者分队前可以调整</view>
+    </view>
+
+    <view class="field">
+      <view class="field-label">手机号</view>
+      <input class="field-input" value="{{form.phone}}" data-field="phone"
+             bindinput="onInput" type="number" placeholder="选填，仅组织者可见" maxlength="20" />
+    </view>
+
+    <view class="field">
+      <view class="field-label">备注</view>
+      <textarea class="field-input textarea" value="{{form.remark}}" data-field="remark"
+                bindinput="onInput" placeholder="选填，比如只能待到几点、有伤在身等"
+                maxlength="200" />
+    </view>
+  </view>
+
+  <view class="footer-spacer"></view>
+</view>
+
+<view class="footer-bar">
+  <button class="btn" bindtap="submit" disabled="{{submitting}}">
+    {{editing ? '保存修改' : '确认报名'}}
+  </button>
+</view>

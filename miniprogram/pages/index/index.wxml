@@ -1,0 +1,39 @@
+<view class="page">
+  <view class="scope-bar">
+    <view class="scope {{scope === 'all' ? 'scope-on' : ''}}" data-scope="all" bindtap="switchScope">全部活动</view>
+    <view class="scope {{scope === 'mine' ? 'scope-on' : ''}}" data-scope="mine" bindtap="switchScope">我创建的</view>
+  </view>
+
+  <view wx:if="{{failed}}" class="banner banner-error">
+    {{failMessage || '加载失败'}}
+  </view>
+
+  <view wx:if="{{loading}}" class="empty">加载中…</view>
+
+  <block wx:elif="{{list.length > 0}}">
+    <view wx:for="{{list}}" wx:key="_id" class="card {{item.pastClass}}"
+          data-id="{{item._id}}" bindtap="openEvent">
+      <view class="row-between">
+        <text class="card-title">{{item.name}}</text>
+        <text class="tag {{item.statusClass}}">{{item.statusText}}</text>
+      </view>
+      <view class="card-meta">{{item.timeText}}</view>
+      <view wx:if="{{item.location}}" class="card-meta">{{item.location}}</view>
+      <view class="row gap">
+        <text class="card-meta">{{item.countText}} · {{item.teamCount}} 队</text>
+        <text wx:if="{{item.signed}}" class="tag tag-mine">已报名</text>
+        <text wx:if="{{item.isOwner}}" class="tag">我创建</text>
+        <text wx:if="{{item.hintText}}" class="tag tag-full">{{item.hintText}}</text>
+      </view>
+    </view>
+  </block>
+
+  <view wx:else class="empty">
+    <view class="empty-title">{{scope === 'mine' ? '你还没有创建活动' : '还没有活动'}}</view>
+    <view class="small">点右下角的按钮创建一场 HAT 赛</view>
+  </view>
+
+  <view class="footer-spacer"></view>
+</view>
+
+<view class="fab" bindtap="createEvent">＋</view>

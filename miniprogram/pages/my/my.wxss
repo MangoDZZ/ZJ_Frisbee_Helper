@@ -1,0 +1,5 @@
+.section-title {
+  font-size: 26rpx;
+  color: #8a9099;
+  margin: 8rpx 0 16rpx 8rpx;
+}

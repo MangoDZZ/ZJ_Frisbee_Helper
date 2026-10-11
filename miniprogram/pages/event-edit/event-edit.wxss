@@ -1,0 +1,13 @@
+.field-row {
+  display: flex;
+  gap: 20rpx;
+}
+.field-half {
+  flex: 1;
+  min-width: 0;
+}
+.textarea {
+  width: 100%;
+  height: 180rpx;
+  box-sizing: border-box;
+}
