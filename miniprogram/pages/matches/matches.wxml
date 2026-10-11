@@ -1,0 +1,53 @@
+<view class="page">
+  <view wx:if="{{failMessage}}" class="banner banner-error">{{failMessage}}</view>
+  <view wx:if="{{loading}}" class="empty">加载中…</view>
+
+  <block wx:elif="{{!failMessage}}">
+    <!-- 队伍战绩 -->
+    <view wx:if="{{list.length > 0}}" class="card">
+      <view class="row-between">
+        <text class="card-title">队伍战绩</text>
+        <text class="muted small" bindtap="goLeaderboard">个人积分榜 ›</text>
+      </view>
+      <view wx:for="{{teamRecords}}" wx:key="index" class="rec-row">
+        <text class="rec-name">{{item.name}}</text>
+        <text class="rec-wl">{{item.won}} 胜 {{item.lost}} 负</text>
+        <text class="rec-diff">净胜分 {{item.diffText}}</text>
+      </view>
+    </view>
+
+    <!-- 比赛列表 -->
+    <view wx:for="{{list}}" wx:key="_id" class="card match-card"
+          data-id="{{item._id}}" bindtap="editMatch">
+      <view class="row-between">
+        <text class="muted small">第 {{item.seq}} 场 · {{item.timeText}}</text>
+        <text wx:if="{{isOwner}}" class="del" catchtap="removeMatch"
+              data-index="{{index}}">删除</text>
+      </view>
+
+      <view class="score-row">
+        <text class="side {{item.aClass}}">{{item.teamAName}}</text>
+        <text class="score">{{item.scoreA}} : {{item.scoreB}}</text>
+        <text class="side {{item.bClass}}">{{item.teamBName}}</text>
+      </view>
+
+      <view class="card-meta center">{{item.countText}}</view>
+      <view wx:if="{{item.mvpText}}" class="mvp-line">
+        <text class="tag tag-mvp">本场 MVP</text>
+        <text>{{item.mvpText}}</text>
+      </view>
+    </view>
+
+    <view wx:if="{{list.length === 0}}" class="empty">
+      <view class="empty-title">还没有比赛记录</view>
+      <view class="small">{{isOwner ? '打完一场就记一场，积分会自动算' : '组织者还没录入比赛'}}</view>
+    </view>
+
+    <view class="footer-spacer"></view>
+  </block>
+</view>
+
+<view wx:if="{{!loading && !failMessage}}" class="footer-bar">
+  <button class="btn btn-plain" bindtap="goLeaderboard">积分榜</button>
+  <button wx:if="{{isOwner}}" class="btn" bindtap="addMatch">记录一场比赛</button>
+</view>

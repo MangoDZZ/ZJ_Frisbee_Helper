@@ -149,9 +149,16 @@ registered.forEach(function (p) {
 // ---------------------------------------------------------------- 3. 云函数 action
 
 console.log('检查云函数 action 是否都已实现')
-const FN = { event: 'hat-event', signup: 'hat-signup', team: 'hat-team' }
+// 新增云函数时记得在这里登记，否则对它的调用会被静默跳过、查了等于没查。
+const FN = {
+  event: 'hat-event',
+  signup: 'hat-signup',
+  team: 'hat-team',
+  match: 'hat-match',
+}
+const FN_KEYS = Object.keys(FN)
 const implemented = {}
-Object.keys(FN).forEach(function (k) {
+FN_KEYS.forEach(function (k) {
   const src = fs.readFileSync(path.join(root, 'cloudfunctions', FN[k], 'index.js'), 'utf8')
   const names = []
   const re = /^\s{2}(?:async\s+)?([A-Za-z][A-Za-z0-9_]*)\s*\(/gm
@@ -160,18 +167,33 @@ Object.keys(FN).forEach(function (k) {
   implemented[k] = names
 })
 
+// 每个云函数都要有被调用到的 action，否则说明登记了却没接上
+FN_KEYS.forEach(function (k) {
+  if (implemented[k].length === 0) {
+    bad('云函数 ' + FN[k] + ' 里没有解析到任何 action，检查写法是否变了')
+  }
+})
+
 function scanCalls (dir) {
   fs.readdirSync(dir).forEach(function (f) {
     const p = path.join(dir, f)
     if (fs.statSync(p).isDirectory()) return scanCalls(p)
     if (!f.endsWith('.js')) return
     const src = fs.readFileSync(p, 'utf8')
-    const re = /api\.(event|signup|team)\(\s*'([^']+)'/g
+    const re = new RegExp('api\\.(' + FN_KEYS.join('|') + ")\\(\\s*'([^']+)'", 'g')
     let m
     while ((m = re.exec(src)) !== null) {
       if (implemented[m[1]].indexOf(m[2]) < 0) {
         bad(path.relative(root, p) + ' 调用了 ' + FN[m[1]] + ' 的 ' + m[2] +
           '，该云函数里没有这个 action')
+      }
+    }
+    // 调了一个没登记的云函数入口，同样要报出来
+    const unknown = /api\.([A-Za-z][A-Za-z0-9_]*)\(\s*'/g
+    while ((m = unknown.exec(src)) !== null) {
+      if (m[1] !== 'call' && FN_KEYS.indexOf(m[1]) < 0) {
+        bad(path.relative(root, p) + ' 调用了未登记的云函数入口 api.' + m[1] +
+          '，请在 tests/check-pages.js 的 FN 里登记')
       }
     }
   })

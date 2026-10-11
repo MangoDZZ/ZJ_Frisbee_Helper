@@ -42,6 +42,14 @@
       点两个不同队的人即可交换位置
     </view>
 
+    <!-- 发布之后才谈得上记录比赛 -->
+    <view wx:if="{{division.published}}" class="card">
+      <view class="btn-bar">
+        <button class="btn btn-ghost btn-sm" bindtap="goMatches">比赛记录</button>
+        <button class="btn btn-plain btn-sm" bindtap="goLeaderboard">积分榜</button>
+      </view>
+    </view>
+
     <view class="footer-spacer"></view>
   </block>
 

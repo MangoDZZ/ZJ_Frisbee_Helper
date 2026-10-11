@@ -19,6 +19,7 @@ const events = db.collection('events')
 const signups = db.collection('signups')
 const constraints = db.collection('constraints')
 const divisions = db.collection('divisions')
+const matchesCol = db.collection('matches')
 
 const STAR_LEVEL = 4
 const MAX_CONSTRAINTS = 200
@@ -152,6 +153,17 @@ const actions = {
 
     const teamsIn = Array.isArray(d.teams) ? d.teams : []
     if (teamsIn.length < 1) return err('INVALID_INPUT', '没有队伍数据')
+
+    // 已经录了比赛就不能再改分队：比赛记录引用的是队伍序号和队员 id，
+    // 重新分队会让这些引用全部失效，产生"某人的积分属于一支不存在的队"这种
+    // 说不清的状态。宁可让组织者多一步，也不要留下对不上的数据。
+    const played = await matchesCol.where({ eventId: evt._id }).count()
+    if (played.total > 0) {
+      return err('MATCHES_EXIST',
+        '已经记录了 ' + played.total + ' 场比赛，不能再重新分队。' +
+        '如果确实要重分，请先删掉全部比赛记录。',
+        { matchCount: played.total })
+    }
 
     const su = await loadSignups(evt._id)
     const expected = Object.keys(su.byId)

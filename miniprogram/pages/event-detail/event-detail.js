@@ -94,6 +94,14 @@ Page({
     wx.navigateTo({ url: '/pages/division/division?eventId=' + this.data.eventId })
   },
 
+  goMatches: function () {
+    wx.navigateTo({ url: '/pages/matches/matches?eventId=' + this.data.eventId })
+  },
+
+  goLeaderboard: function () {
+    wx.navigateTo({ url: '/pages/leaderboard/leaderboard?eventId=' + this.data.eventId })
+  },
+
   cancelSignup: function () {
     const that = this
     wx.showModal({

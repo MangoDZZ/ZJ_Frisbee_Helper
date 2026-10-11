@@ -172,6 +172,14 @@ Page({
     this.compute()
   },
 
+  goMatches: function () {
+    wx.navigateTo({ url: '/pages/matches/matches?eventId=' + this.data.eventId })
+  },
+
+  goLeaderboard: function () {
+    wx.navigateTo({ url: '/pages/leaderboard/leaderboard?eventId=' + this.data.eventId })
+  },
+
   // ---------------- 手动换人 ----------------
 
   tapMember: function (e) {

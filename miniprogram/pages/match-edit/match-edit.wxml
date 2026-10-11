@@ -1,0 +1,98 @@
+<view class="page">
+  <view wx:if="{{failMessage}}" class="banner banner-error">{{failMessage}}</view>
+  <view wx:if="{{loading}}" class="empty">加载中…</view>
+
+  <block wx:elif="{{!failMessage}}">
+    <!-- 选队 -->
+    <view class="card">
+      <view class="card-title">对阵队伍</view>
+
+      <view class="field gap">
+        <view class="field-label">甲方 <text class="req">*</text></view>
+        <view class="options">
+          <view wx:for="{{teams}}" wx:key="index"
+                class="option {{teamAIndex === item.index ? 'option-on' : ''}}"
+                data-side="A" data-index="{{item.index}}" bindtap="pickTeam">{{item.name}}</view>
+        </view>
+      </view>
+
+      <view class="field">
+        <view class="field-label">乙方 <text class="req">*</text></view>
+        <view class="options">
+          <view wx:for="{{teams}}" wx:key="index"
+                class="option {{teamBIndex === item.index ? 'option-on' : ''}}"
+                data-side="B" data-index="{{item.index}}" bindtap="pickTeam">{{item.name}}</view>
+        </view>
+      </view>
+    </view>
+
+    <!-- 比分 -->
+    <view wx:if="{{teamAIndex !== null && teamBIndex !== null}}" class="card">
+      <view class="card-title">比分</view>
+      <view class="score-input-row">
+        <view class="score-col">
+          <text class="score-team">{{teamAName}}</text>
+          <input class="score-box" type="number" value="{{scoreA}}"
+                 data-field="scoreA" bindinput="onScore" placeholder="0" />
+        </view>
+        <text class="score-colon">:</text>
+        <view class="score-col">
+          <text class="score-team">{{teamBName}}</text>
+          <input class="score-box" type="number" value="{{scoreB}}"
+                 data-field="scoreB" bindinput="onScore" placeholder="0" />
+        </view>
+      </view>
+      <view wx:if="{{scoreHint}}" class="banner banner-error gap">{{scoreHint}}</view>
+    </view>
+
+    <!-- 上场名单 -->
+    <view wx:if="{{teamAIndex !== null}}" class="card">
+      <view class="row-between">
+        <text class="card-title">{{teamAName}} 上场名单</text>
+        <text class="muted small" data-side="A" bindtap="selectAll">全选 / 全不选</text>
+      </view>
+      <view class="field-hint">默认全队上场，取消没打的人即可。未上场不计积分。</view>
+      <view class="options gap">
+        <view wx:for="{{rosterA}}" wx:key="_id"
+              class="option {{item.checked ? 'option-on' : ''}}"
+              data-side="A" data-index="{{index}}" bindtap="toggleMember">
+          {{item.name}}<text class="opt-lv">{{item.level}}</text>
+        </view>
+      </view>
+    </view>
+
+    <view wx:if="{{teamBIndex !== null}}" class="card">
+      <view class="row-between">
+        <text class="card-title">{{teamBName}} 上场名单</text>
+        <text class="muted small" data-side="B" bindtap="selectAll">全选 / 全不选</text>
+      </view>
+      <view class="options gap">
+        <view wx:for="{{rosterB}}" wx:key="_id"
+              class="option {{item.checked ? 'option-on' : ''}}"
+              data-side="B" data-index="{{index}}" bindtap="toggleMember">
+          {{item.name}}<text class="opt-lv">{{item.level}}</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- MVP -->
+    <view wx:if="{{mvpSide}}" class="card">
+      <view class="card-title">本场 MVP</view>
+      <view class="field-hint">
+        由胜方从败方的上场队员中选出 2 名，每人额外 +1 分。可以先不选，之后再补。
+      </view>
+      <view class="options gap">
+        <view wx:for="{{mvpCandidates}}" wx:key="_id"
+              class="option {{item.selected ? 'option-mvp' : ''}}"
+              data-id="{{item._id}}" bindtap="toggleMvp">{{item.name}}</view>
+      </view>
+      <view class="muted small gap">已选 {{mvpIds.length}} / 2</view>
+    </view>
+
+    <view class="footer-spacer"></view>
+  </block>
+</view>
+
+<view wx:if="{{!loading && !failMessage}}" class="footer-bar">
+  <button class="btn" bindtap="submit" disabled="{{submitting}}">保存比赛</button>
+</view>

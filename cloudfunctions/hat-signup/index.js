@@ -25,9 +25,22 @@ function err (code, message, detail) {
 
 function trimStr (v) { return typeof v === 'string' ? v.trim() : '' }
 
+/**
+ * 解析整数。不能直接用 Number()：Number(null) / Number('') / Number([]) 都是 0，
+ * 会把缺失值静默当成 0。其他字段靠范围校验碰巧拦住了，但比分本来就允许 0，
+ * 一条 scoreB: null 会被静默录成 15:0。
+ */
 function asInt (v) {
-  const n = Number(v)
-  return isFinite(n) && Math.floor(n) === n ? n : null
+  if (typeof v === 'number') {
+    return isFinite(v) && Math.floor(v) === v ? v : null
+  }
+  if (typeof v === 'string') {
+    const s = v.trim()
+    if (s === '') return null
+    const n = Number(s)
+    return isFinite(n) && Math.floor(n) === n ? n : null
+  }
+  return null
 }
 
 async function loadEvent (eventId) {

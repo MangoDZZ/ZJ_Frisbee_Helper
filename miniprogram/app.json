@@ -7,6 +7,9 @@
     "pages/event-edit/event-edit",
     "pages/manage/manage",
     "pages/division/division",
+    "pages/matches/matches",
+    "pages/match-edit/match-edit",
+    "pages/leaderboard/leaderboard",
     "pages/my/my"
   ],
   "window": {

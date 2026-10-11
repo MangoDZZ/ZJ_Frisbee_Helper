@@ -1,0 +1,46 @@
+<view class="page">
+  <view wx:if="{{failMessage}}" class="banner banner-error">{{failMessage}}</view>
+  <view wx:if="{{loading}}" class="empty">加载中…</view>
+
+  <block wx:elif="{{!failMessage}}">
+    <view class="card">
+      <view class="card-title">{{eventName}}</view>
+      <view class="card-meta">
+        已记录 {{totals.matchCount}} 场比赛 · {{totals.playedCount}}/{{totals.playerCount}} 人上过场
+      </view>
+      <view class="rule-line">{{ruleText}}</view>
+    </view>
+
+    <view wx:if="{{totals.matchCount === 0}}" class="banner banner-info">
+      还没有比赛记录，积分都是 0。
+    </view>
+
+    <view class="card">
+      <view class="lb-head">
+        <text class="lb-rank">名次</text>
+        <text class="lb-name">姓名</text>
+        <text class="lb-team">队伍</text>
+        <text class="lb-mvp">MVP</text>
+        <text class="lb-pts">积分</text>
+      </view>
+
+      <view wx:for="{{rows}}" wx:key="signupId" class="lb-row {{item.dimClass}}">
+        <text class="lb-rank {{item.rankClass}}">{{item.rank}}</text>
+        <view class="lb-name">
+          <text class="strong">{{item.name}}</text>
+          <text class="muted small">{{item.recordText}}</text>
+        </view>
+        <text class="lb-team">{{item.teamName}}</text>
+        <text class="lb-mvp">{{item.mvpCount > 0 ? item.mvpCount : '-'}}</text>
+        <text class="lb-pts">{{item.points}}</text>
+      </view>
+    </view>
+
+    <view class="footer-spacer"></view>
+  </block>
+</view>
+
+<view wx:if="{{!loading && !failMessage}}" class="footer-bar">
+  <button class="btn btn-plain" bindtap="goMatches">比赛记录</button>
+  <button class="btn" open-type="share">分享积分榜</button>
+</view>

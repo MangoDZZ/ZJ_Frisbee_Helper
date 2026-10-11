@@ -1,0 +1,78 @@
+.rule-line {
+  margin-top: 16rpx;
+  padding: 14rpx 18rpx;
+  background: #f4f5f7;
+  border-radius: 10rpx;
+  font-size: 24rpx;
+  color: #4b5563;
+}
+
+.lb-head {
+  display: flex;
+  align-items: center;
+  padding-bottom: 14rpx;
+  border-bottom: 2rpx solid #eef0f2;
+  font-size: 24rpx;
+  color: #8a9099;
+}
+.lb-row {
+  display: flex;
+  align-items: center;
+  padding: 18rpx 0;
+  border-bottom: 2rpx solid #f4f5f7;
+}
+.lb-row:last-child { border-bottom: none; }
+
+/* 一场没打的人压低视觉权重，但仍然列出来——组织者要看到谁还没上过场 */
+.row-dim { opacity: 0.45; }
+
+.lb-rank {
+  width: 76rpx;
+  flex: none;
+  text-align: center;
+  font-size: 28rpx;
+  color: #6b7280;
+}
+.rank-top {
+  font-weight: 700;
+  color: #fff;
+  border-radius: 50%;
+  width: 44rpx;
+  height: 44rpx;
+  line-height: 44rpx;
+  margin-left: 16rpx;
+  font-size: 26rpx;
+}
+.rank-1 { background: #d9a21c; }
+.rank-2 { background: #9aa3ad; }
+.rank-3 { background: #b47d4e; }
+
+.lb-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  font-size: 28rpx;
+}
+.lb-team {
+  width: 110rpx;
+  flex: none;
+  font-size: 24rpx;
+  color: #6b7280;
+  text-align: center;
+}
+.lb-mvp {
+  width: 80rpx;
+  flex: none;
+  text-align: center;
+  font-size: 26rpx;
+  color: #96631a;
+}
+.lb-pts {
+  width: 90rpx;
+  flex: none;
+  text-align: right;
+  font-size: 34rpx;
+  font-weight: 600;
+  color: #1f6f4a;
+}

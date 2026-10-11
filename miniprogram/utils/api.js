@@ -57,4 +57,5 @@ module.exports = {
   event: function (action, data, opts) { return call('hat-event', action, data, opts) },
   signup: function (action, data, opts) { return call('hat-signup', action, data, opts) },
   team: function (action, data, opts) { return call('hat-team', action, data, opts) },
+  match: function (action, data, opts) { return call('hat-match', action, data, opts) },
 }

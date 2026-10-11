@@ -51,6 +51,14 @@
       </view>
     </view>
 
+    <!-- 分队发布后才有比赛和积分 -->
+    <view wx:if="{{division}}" class="card">
+      <view class="btn-bar">
+        <button class="btn btn-ghost btn-sm" bindtap="goMatches">比赛记录</button>
+        <button class="btn btn-plain btn-sm" bindtap="goLeaderboard">积分榜</button>
+      </view>
+    </view>
+
     <view class="footer-spacer"></view>
   </block>
 </view>
