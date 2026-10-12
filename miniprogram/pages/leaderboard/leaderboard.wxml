@@ -6,9 +6,11 @@
     <view class="card">
       <view class="card-title">{{eventName}}</view>
       <view class="card-meta">
-        已记录 {{totals.matchCount}} 场比赛 · {{totals.playedCount}}/{{totals.playerCount}} 人上过场
+        {{tournamentCount}} 场赛事 · 已记录 {{totals.matchCount}} 场比赛 ·
+        {{totals.playedCount}}/{{totals.playerCount}} 人上过场
       </view>
       <view class="rule-line">{{ruleText}}</view>
+      <view class="field-hint">本榜汇总了这个活动下全部赛事的积分。</view>
     </view>
 
     <view wx:if="{{totals.matchCount === 0}}" class="banner banner-info">
@@ -19,7 +21,6 @@
       <view class="lb-head">
         <text class="lb-rank">名次</text>
         <text class="lb-name">姓名</text>
-        <text class="lb-team">队伍</text>
         <text class="lb-mvp">MVP</text>
         <text class="lb-pts">积分</text>
       </view>
@@ -30,7 +31,6 @@
           <text class="strong">{{item.name}}</text>
           <text class="muted small">{{item.recordText}}</text>
         </view>
-        <text class="lb-team">{{item.teamName}}</text>
         <text class="lb-mvp">{{item.mvpCount > 0 ? item.mvpCount : '-'}}</text>
         <text class="lb-pts">{{item.points}}</text>
       </view>
@@ -41,6 +41,6 @@
 </view>
 
 <view wx:if="{{!loading && !failMessage}}" class="footer-bar">
-  <button class="btn btn-plain" bindtap="goMatches">比赛记录</button>
+  <button class="btn btn-plain" bindtap="goTournaments">赛事列表</button>
   <button class="btn" open-type="share">分享积分榜</button>
 </view>

@@ -9,6 +9,7 @@ Page({
     failMessage: '',
     signups: [],
     owned: [],
+    isAdmin: false,
   },
 
   onShow: function () {
@@ -24,10 +25,15 @@ Page({
     return Promise.all([
       api.signup('mine', {}, { loading: false, toastError: false }),
       api.event('list', { scope: 'mine' }, { loading: false, toastError: false }),
+      // whoami 只用来决定入口显隐，真正的拦截在云函数里
+      api.admin('whoami', {}, { loading: false, toastError: false })
+        .catch(function () { return { isAdmin: false } }),
     ]).then(function (r) {
       that.setData({
         loading: false,
         failMessage: '',
+        isAdmin: !!(r[2] && r[2].isAdmin),
+        isScorer: !!(r[2] && r[2].isScorer),
         signups: (r[0].list || []).map(function (s) {
           return {
             _id: s._id,
@@ -66,5 +72,9 @@ Page({
 
   createEvent: function () {
     wx.navigateTo({ url: '/pages/event-edit/event-edit' })
+  },
+
+  goAdmin: function () {
+    wx.navigateTo({ url: '/pages/admin/admin' })
   },
 })

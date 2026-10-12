@@ -3,6 +3,9 @@
 /**
  * 比赛战绩与积分云函数。
  *
+ * 比赛挂在**赛事**上；积分榜是**活动级汇总**（把该活动下所有赛事的得分按人合并）。
+ * 录战绩的权限放开给记分员，建赛事和分队仍然只有组织者能做。
+ *
  * 积分不入库，每次由比赛记录实时推导（见 lib/score.js）。校验在这里从严，
  * 因为任何一条录错的比赛都会变成一个说不通的积分，而且事后很难发现。
  */
@@ -12,11 +15,13 @@ const cloud = require('wx-server-sdk')
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 
 const score = require('./lib/score.js')
+const roles = require('./lib/roles.js')
 
 const db = cloud.database()
 const events = db.collection('events')
 const signups = db.collection('signups')
 const divisions = db.collection('divisions')
+const tournaments = db.collection('tournaments')
 const matches = db.collection('matches')
 
 const MAX_MVP = 2
@@ -55,14 +60,18 @@ async function loadEvent (eventId) {
   return { value: Object.assign({ _id: id }, res.data) }
 }
 
-function requireOwner (evt, openid) {
-  if (evt.ownerOpenid !== openid) {
-    return err('FORBIDDEN', '只有活动创建者可以进行此操作')
-  }
-  return null
+async function loadTournament (tournamentId) {
+  const id = trimStr(tournamentId)
+  if (!id) return { error: err('INVALID_INPUT', '缺少赛事 id') }
+  const res = await tournaments.doc(id).get().catch(function () { return null })
+  if (!res || !res.data) return { error: err('NOT_FOUND', '赛事不存在或已被删除') }
+  const t = Object.assign({ _id: id }, res.data)
+  const e = await loadEvent(t.eventId)
+  if (e.error) return e
+  return { value: { tournament: t, evt: e.value } }
 }
 
-/** 取这场活动的全部有效报名，返回 id → 记录的映射。 */
+/** 取这场活动的全部有效报名。积分榜以它为人员基准。 */
 async function loadSignups (eventId) {
   const all = []
   for (let skip = 0; skip < 1000; skip += 100) {
@@ -85,11 +94,9 @@ async function loadSignups (eventId) {
   return { list: all, byId: byId }
 }
 
-/**
- * 比赛必须挂在已发布的分队上——发布之前队伍还可能变，记了也对不上。
- */
-async function loadPublishedDivision (eventId) {
-  const res = await divisions.where({ eventId: eventId, published: true })
+/** 比赛必须挂在已发布的分队上——发布之前队伍还可能变，记了也对不上。 */
+async function loadPublishedDivision (tournamentId) {
+  const res = await divisions.where({ tournamentId: tournamentId, published: true })
     .orderBy('version', 'desc').limit(1).get()
   const div = res.data && res.data[0]
   if (!div) {
@@ -98,10 +105,23 @@ async function loadPublishedDivision (eventId) {
   return { value: div }
 }
 
-async function loadMatches (eventId) {
-  const res = await matches.where({ eventId: eventId })
+async function loadMatchesOfTournament (tournamentId) {
+  const res = await matches.where({ tournamentId: tournamentId })
     .orderBy('createTime', 'asc').limit(MAX_MATCHES).get()
   return res.data || []
+}
+
+/** 活动下所有赛事的比赛，用于汇总积分榜。 */
+async function loadMatchesOfEvent (eventId) {
+  const all = []
+  for (let skip = 0; skip < 2000; skip += 100) {
+    const page = await matches.where({ eventId: eventId })
+      .orderBy('createTime', 'asc').skip(skip).limit(100).get()
+    const rows = page.data || []
+    for (let i = 0; i < rows.length; i++) all.push(rows[i])
+    if (rows.length < 100) break
+  }
+  return all
 }
 
 /**
@@ -161,8 +181,7 @@ function validateMatch (d, division) {
       return { error: err('INVALID_INPUT', '同一个人不能被选为两次 MVP', { id: id }) }
     }
     if (loserParticipants.indexOf(id) < 0) {
-      return { error: err('INVALID_MVP',
-        'MVP 只能从败方的上场队员里选', { id: id }) }
+      return { error: err('INVALID_MVP', 'MVP 只能从败方的上场队员里选', { id: id }) }
     }
     mvpIds.push(id)
   }
@@ -183,7 +202,7 @@ function validateMatch (d, division) {
   }
 }
 
-/** 把一条比赛记录补上队名和人名，让页面能直接渲染。 */
+/** 把一条比赛记录补上队名和人名。不带 level——球员水平不公开。 */
 function decorateMatch (m, division, byId) {
   const teams = division.teams || []
   function nameOf (id) {
@@ -208,31 +227,26 @@ function decorateMatch (m, division, byId) {
   }
 }
 
-/** 读取类操作的共同前置：参与者只有在分队发布后才能看。 */
-async function requireReadable (eventId, openid) {
-  const e = await loadEvent(eventId)
-  if (e.error) return e
-  const evt = e.value
-  const isOwner = evt.ownerOpenid === openid
-
-  const d = await loadPublishedDivision(evt._id)
-  if (d.error) {
-    // 组织者能看到"还没发布"这个状态，参与者直接当作没有数据。
-    if (isOwner) return { error: d.error }
-    return { error: err('DIVISION_NOT_PUBLISHED', '分队结果还没发布') }
+/** 录战绩的权限：记分员、组织者、管理员。 */
+async function requireScorer (evt, openid) {
+  const allowed = await roles.canScore(db, evt, openid)
+  if (!allowed) {
+    return err('FORBIDDEN', '只有记分员、活动创建者或管理员可以录入比赛')
   }
-  return { value: { evt: evt, isOwner: isOwner, division: d.value } }
+  return null
 }
 
 const actions = {
   async saveMatch (d, openid) {
-    const e = await loadEvent(d.eventId)
-    if (e.error) return e.error
-    const evt = e.value
-    const forbidden = requireOwner(evt, openid)
+    const t = await loadTournament(d.tournamentId)
+    if (t.error) return t.error
+    const tour = t.value.tournament
+    const evt = t.value.evt
+
+    const forbidden = await requireScorer(evt, openid)
     if (forbidden) return forbidden
 
-    const dv = await loadPublishedDivision(evt._id)
+    const dv = await loadPublishedDivision(tour._id)
     if (dv.error) return dv.error
     const division = dv.value
 
@@ -245,8 +259,8 @@ const actions = {
     if (matchId) {
       const target = await matches.doc(matchId).get().catch(function () { return null })
       if (!target || !target.data) return err('NOT_FOUND', '比赛记录不存在')
-      if (target.data.eventId !== evt._id) {
-        return err('FORBIDDEN', '该比赛记录不属于这场活动')
+      if (target.data.tournamentId !== tour._id) {
+        return err('FORBIDDEN', '该比赛记录不属于这场赛事')
       }
       await matches.doc(matchId).update({
         data: Object.assign({}, v.value, { updateTime: now }),
@@ -254,74 +268,105 @@ const actions = {
       return ok({ _id: matchId, updated: true })
     }
 
-    const existing = await matches.where({ eventId: evt._id }).count()
+    const existing = await matches.where({ tournamentId: tour._id }).count()
     if (existing.total >= MAX_MATCHES) {
-      return err('TOO_MANY', '一场活动最多记录 ' + MAX_MATCHES + ' 场比赛')
+      return err('TOO_MANY', '一场赛事最多记录 ' + MAX_MATCHES + ' 场比赛')
     }
 
     const res = await matches.add({
       data: Object.assign({}, v.value, {
-        eventId: evt._id,
+        tournamentId: tour._id,
+        // 冗余存一份 eventId，汇总积分榜要按活动一次查出所有比赛。
+        eventId: tour.eventId,
         divisionId: division._id,
         createTime: now,
         updateTime: now,
+        createdBy: openid,
       }),
     })
     return ok({ _id: res._id, updated: false })
   },
 
   async removeMatch (d, openid) {
-    const e = await loadEvent(d.eventId)
-    if (e.error) return e.error
-    const forbidden = requireOwner(e.value, openid)
+    const t = await loadTournament(d.tournamentId)
+    if (t.error) return t.error
+    const forbidden = await requireScorer(t.value.evt, openid)
     if (forbidden) return forbidden
 
     const matchId = trimStr(d.matchId)
     if (!matchId) return err('INVALID_INPUT', '缺少比赛记录 id')
     const target = await matches.doc(matchId).get().catch(function () { return null })
     if (!target || !target.data) return err('NOT_FOUND', '比赛记录不存在')
-    if (target.data.eventId !== e.value._id) {
-      return err('FORBIDDEN', '该比赛记录不属于这场活动')
+    if (target.data.tournamentId !== t.value.tournament._id) {
+      return err('FORBIDDEN', '该比赛记录不属于这场赛事')
     }
 
     await matches.doc(matchId).remove()
     return ok({ removed: true })
   },
 
+  /** 单场赛事的比赛列表。参与者需要该赛事已发布分队。 */
   async listMatches (d, openid) {
-    const r = await requireReadable(d.eventId, openid)
-    if (r.error) return r.error
-    const ctx = r.value
+    const t = await loadTournament(d.tournamentId)
+    if (t.error) return t.error
+    const tour = t.value.tournament
+    const evt = t.value.evt
 
-    const su = await loadSignups(ctx.evt._id)
-    const rows = await loadMatches(ctx.evt._id)
+    const isOrganizer = roles.isOrganizer(evt, openid)
+    const canScore = await roles.canScore(db, evt, openid)
+
+    const dv = await loadPublishedDivision(tour._id)
+    if (dv.error) {
+      if (isOrganizer) return dv.error
+      return err('DIVISION_NOT_PUBLISHED', '分队结果还没发布')
+    }
+
+    const su = await loadSignups(tour.eventId)
+    const rows = await loadMatchesOfTournament(tour._id)
     const list = rows.map(function (m) {
-      return decorateMatch(m, ctx.division, su.byId)
+      return decorateMatch(m, dv.value, su.byId)
     })
 
     return ok({
-      isOwner: ctx.isOwner,
+      isOwner: canScore,
+      isOrganizer: isOrganizer,
+      canScore: canScore,
+      tournamentName: tour.name,
+      eventId: tour.eventId,
       list: list,
-      teams: (ctx.division.teams || []).map(function (t) {
-        return { index: t.index, name: t.name, memberIds: t.memberIds }
+      teams: (dv.value.teams || []).map(function (x) {
+        return { index: x.index, name: x.name, memberIds: x.memberIds }
       }),
-      teamRecords: score.computeTeamRecords(rows, ctx.division),
+      teamRecords: score.computeTeamRecords(rows, dv.value),
     })
   },
 
-  /** 积分榜。实时按比赛记录推导，不读任何存量积分字段。 */
+  /**
+   * 积分榜：整个活动的汇总，把该活动下所有赛事的得分按人合并。
+   * 实时推导，不读任何存量积分字段。返回里不含球员水平。
+   */
   async leaderboard (d, openid) {
-    const r = await requireReadable(d.eventId, openid)
-    if (r.error) return r.error
-    const ctx = r.value
+    const e = await loadEvent(d.eventId)
+    if (e.error) return e.error
+    const evt = e.value
+    const isOrganizer = roles.isOrganizer(evt, openid)
 
-    const su = await loadSignups(ctx.evt._id)
-    const rows = await loadMatches(ctx.evt._id)
-    const standings = score.computeStandings(rows, ctx.division, su.byId)
+    // 参与者至少要有一场赛事已发布，才看得到积分榜。
+    const pub = await divisions.where({ eventId: evt._id, published: true }).limit(1).count()
+    if (pub.total === 0 && !isOrganizer) {
+      return err('DIVISION_NOT_PUBLISHED', '分队结果还没发布')
+    }
+
+    const su = await loadSignups(evt._id)
+    const rows = await loadMatchesOfEvent(evt._id)
+    const standings = score.computeStandings(rows, su.byId)
+
+    const tourCount = await tournaments.where({ eventId: evt._id }).count()
 
     return ok({
-      isOwner: ctx.isOwner,
-      eventName: ctx.evt.name,
+      isOrganizer: isOrganizer,
+      eventName: evt.name,
+      tournamentCount: tourCount.total,
       rows: standings.rows,
       totals: standings.totals,
       rules: {
@@ -330,16 +375,6 @@ const actions = {
         mvp: score.MVP_BONUS,
       },
     })
-  },
-
-  /** 供分队页判断能不能重新分队。 */
-  async countMatches (d, openid) {
-    const e = await loadEvent(d.eventId)
-    if (e.error) return e.error
-    const forbidden = requireOwner(e.value, openid)
-    if (forbidden) return forbidden
-    const res = await matches.where({ eventId: e.value._id }).count()
-    return ok({ count: res.total })
   },
 }
 

@@ -1,0 +1,46 @@
+<view class="page">
+  <view wx:if="{{failMessage}}" class="banner banner-error">{{failMessage}}</view>
+  <view wx:if="{{loading}}" class="empty">加载中…</view>
+
+  <block wx:elif="{{!failMessage}}">
+    <view class="card">
+      <view class="card-title">记分员管理</view>
+      <view class="field-hint">
+        记分员可以为所有活动录入比赛战绩，但不能创建赛事、分队或调整水平。
+        名单来自报过名的人，点一行即可切换。
+      </view>
+      <view class="card-meta gap">当前 {{scorerCount}} 名记分员</view>
+    </view>
+
+    <view class="card">
+      <view wx:for="{{list}}" wx:key="openid" class="user-row"
+            data-index="{{index}}" bindtap="toggleScorer">
+        <view class="user-main">
+          <view>
+            <text class="strong">{{item.name}}</text>
+            <text class="muted small">　{{item.genderText}}</text>
+            <text wx:if="{{item.roleText}}" class="tag {{item.roleClass}}">{{item.roleText}}</text>
+          </view>
+          <view class="muted small">{{item.metaText}}</view>
+        </view>
+        <view class="user-toggle {{item.isScorer ? 'toggle-on' : ''}}">
+          {{item.isAdmin ? '—' : (item.isScorer ? '取消' : '设为记分员')}}
+        </view>
+      </view>
+
+      <view wx:if="{{list.length === 0}}" class="muted small">
+        还没有人报过名，没有可指定的对象
+      </view>
+    </view>
+
+    <view class="card">
+      <view class="card-title">管理员</view>
+      <view class="field-hint">
+        管理员写死在云函数的 lib/roles.js 里，改名单要同时改全部 5 个云函数的副本
+        并重新部署。这样做是因为权限必须在服务端判定——前端配置改一行就能冒充身份。
+      </view>
+    </view>
+
+    <view class="footer-spacer"></view>
+  </block>
+</view>

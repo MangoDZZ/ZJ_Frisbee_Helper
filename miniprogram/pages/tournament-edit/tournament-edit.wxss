@@ -1,0 +1,5 @@
+.opt-sub {
+  font-size: 20rpx;
+  opacity: 0.65;
+  margin-left: 8rpx;
+}

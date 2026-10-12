@@ -6,10 +6,13 @@
     "pages/signup-form/signup-form",
     "pages/event-edit/event-edit",
     "pages/manage/manage",
+    "pages/tournaments/tournaments",
+    "pages/tournament-edit/tournament-edit",
     "pages/division/division",
     "pages/matches/matches",
     "pages/match-edit/match-edit",
     "pages/leaderboard/leaderboard",
+    "pages/admin/admin",
     "pages/my/my"
   ],
   "window": {

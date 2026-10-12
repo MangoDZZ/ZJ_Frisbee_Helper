@@ -5,7 +5,10 @@ const fmt = require('../../utils/format.js')
 
 Page({
   data: {
+    tournamentId: '',
     eventId: '',
+    tournamentName: '',
+    canScore: false,
     loading: true,
     failMessage: '',
     isOwner: false,
@@ -14,11 +17,11 @@ Page({
   },
 
   onLoad: function (q) {
-    this.setData({ eventId: q.eventId || '' })
+    this.setData({ tournamentId: q.tournamentId || '' })
   },
 
   onShow: function () {
-    if (this.data.eventId) this.load()
+    if (this.data.tournamentId) this.load()
   },
 
   onPullDownRefresh: function () {
@@ -27,13 +30,16 @@ Page({
 
   load: function () {
     const that = this
-    return api.match('listMatches', { eventId: this.data.eventId },
+    return api.match('listMatches', { tournamentId: this.data.tournamentId },
       { loading: false, toastError: false })
       .then(function (d) {
         that.setData({
           loading: false,
           failMessage: '',
-          isOwner: d.isOwner,
+          isOwner: d.canScore,
+          canScore: d.canScore,
+          eventId: d.eventId,
+          tournamentName: d.tournamentName,
           list: (d.list || []).map(decorate),
           teamRecords: (d.teamRecords || []).map(function (r) {
             return Object.assign({}, r, {
@@ -52,13 +58,13 @@ Page({
   },
 
   addMatch: function () {
-    wx.navigateTo({ url: '/pages/match-edit/match-edit?eventId=' + this.data.eventId })
+    wx.navigateTo({ url: '/pages/match-edit/match-edit?tournamentId=' + this.data.tournamentId })
   },
 
   editMatch: function (e) {
     if (!this.data.isOwner) return
     wx.navigateTo({
-      url: '/pages/match-edit/match-edit?eventId=' + this.data.eventId +
+      url: '/pages/match-edit/match-edit?tournamentId=' + this.data.tournamentId +
         '&matchId=' + e.currentTarget.dataset.id,
     })
   },
@@ -74,7 +80,7 @@ Page({
       success: function (r) {
         if (!r.confirm) return
         api.match('removeMatch', {
-          eventId: that.data.eventId,
+          tournamentId: that.data.tournamentId,
           matchId: row._id,
         }, { loading: '删除中' })
           .then(function () { return that.load() })

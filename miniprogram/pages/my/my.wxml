@@ -3,6 +3,18 @@
   <view wx:if="{{loading}}" class="empty">加载中…</view>
 
   <block wx:else>
+    <view wx:if="{{isAdmin}}" class="card" bindtap="goAdmin">
+      <view class="row-between">
+        <text class="card-title">后台管理</text>
+        <text class="muted small">管理记分员 ›</text>
+      </view>
+      <view class="card-meta">你是管理员</view>
+    </view>
+    <view wx:elif="{{isScorer}}" class="card">
+      <view class="card-title">记分员</view>
+      <view class="card-meta">你可以为所有活动录入比赛战绩</view>
+    </view>
+
     <view class="section-title">我报名的活动</view>
     <block wx:if="{{signups.length > 0}}">
       <view wx:for="{{signups}}" wx:key="_id" class="card"

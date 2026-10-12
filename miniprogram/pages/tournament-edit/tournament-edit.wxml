@@ -1,0 +1,54 @@
+<view class="page">
+  <view wx:if="{{failMessage}}" class="banner banner-error">{{failMessage}}</view>
+  <view wx:if="{{loading}}" class="empty">加载中…</view>
+
+  <block wx:elif="{{!failMessage}}">
+    <view wx:if="{{lockedReason}}" class="banner banner-warn">{{lockedReason}}</view>
+
+    <view class="card">
+      <view class="field">
+        <view class="field-label">赛事名称 <text class="req">*</text></view>
+        <input class="field-input" value="{{name}}" data-field="name"
+               bindinput="onInput" placeholder="例：第 1 场" maxlength="30" />
+      </view>
+
+      <view class="field">
+        <view class="field-label">分几个队 <text class="req">*</text></view>
+        <input class="field-input" value="{{teamCount}}" data-field="teamCount"
+               bindinput="onInput" type="number" maxlength="2" />
+        <view class="field-hint">每场赛事可以分不同的队数，到场人少就少分几队</view>
+      </view>
+    </view>
+
+    <view class="card">
+      <view class="row-between">
+        <text class="card-title">到场名单</text>
+        <text class="muted small" bindtap="selectAll">全选 / 全不选</text>
+      </view>
+      <view class="field-hint">
+        默认全选报名名单，取消这场没来的人。只有到场的人会参与本场分队。
+      </view>
+      <view class="muted small gap">已选 {{checkedCount}} / {{roster.length}} 人</view>
+
+      <view class="options gap">
+        <view wx:for="{{roster}}" wx:key="_id"
+              class="option {{item.checked ? 'option-on' : ''}}"
+              data-index="{{index}}" bindtap="toggleMember">
+          {{item.name}}<text class="opt-sub">{{item.genderText}}{{item.levelText}}</text>
+        </view>
+      </view>
+
+      <view wx:if="{{roster.length === 0}}" class="muted small gap">
+        这场活动还没有人报名
+      </view>
+    </view>
+
+    <view class="footer-spacer"></view>
+  </block>
+</view>
+
+<view wx:if="{{!loading && !failMessage}}" class="footer-bar">
+  <button class="btn" bindtap="submit" disabled="{{submitting}}">
+    {{editing ? '保存修改' : '创建并分队'}}
+  </button>
+</view>

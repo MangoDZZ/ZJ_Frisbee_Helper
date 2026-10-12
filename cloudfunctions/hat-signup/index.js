@@ -10,6 +10,8 @@ const cloud = require('wx-server-sdk')
 
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 
+const roles = require('./lib/roles.js')
+
 const db = cloud.database()
 const _ = db.command
 const events = db.collection('events')
@@ -52,8 +54,10 @@ async function loadEvent (eventId) {
 }
 
 function requireOwner (evt, openid) {
-  if (evt.ownerOpenid !== openid) {
-    return err('FORBIDDEN', '只有活动创建者可以进行此操作')
+  // 管理员拥有组织者的全部权限。球员水平只在这条路径上返回，
+  // 其他任何出口都不带 level——参与者只能看到自己的自评。
+  if (!roles.isOrganizer(evt, openid)) {
+    return err('FORBIDDEN', '只有活动创建者或管理员可以进行此操作')
   }
   return null
 }

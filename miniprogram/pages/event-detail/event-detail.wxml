@@ -37,24 +37,25 @@
       </view>
     </view>
 
-    <!-- 已发布的分队结果 -->
-    <view wx:if="{{division}}" class="card" bindtap="goDivision">
+    <!-- 赛事：一个活动里可以开多场，各自分队 -->
+    <view wx:if="{{tournaments.length > 0}}" class="card" bindtap="goTournaments">
       <view class="row-between">
-        <text class="card-title">分队结果</text>
+        <text class="card-title">赛事（{{tournaments.length}} 场）</text>
         <text class="muted small">查看全部 ›</text>
       </view>
-      <view wx:for="{{division.teams}}" wx:key="index" class="team-line">
+      <view wx:for="{{tournaments}}" wx:key="_id" class="team-line">
         <text class="strong">{{item.name}}</text>
         <text class="muted small">
-          {{item.stats.count}}人 · {{item.stats.male}}男{{item.stats.female}}女 · 均分{{item.stats.avgLevel}}
+          {{item.attendeeCount}}人 · {{item.teamCount}}队{{item.matchCount > 0 ? ' · ' + item.matchCount + '场比赛' : ''}}
         </text>
       </view>
     </view>
 
-    <!-- 分队发布后才有比赛和积分 -->
-    <view wx:if="{{division}}" class="card">
+    <view class="card">
       <view class="btn-bar">
-        <button class="btn btn-ghost btn-sm" bindtap="goMatches">比赛记录</button>
+        <button class="btn btn-ghost btn-sm" bindtap="goTournaments">
+          {{tournaments.length > 0 ? '赛事与分队' : '还没有赛事'}}
+        </button>
         <button class="btn btn-plain btn-sm" bindtap="goLeaderboard">积分榜</button>
       </view>
     </view>

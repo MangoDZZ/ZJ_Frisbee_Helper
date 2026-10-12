@@ -56,7 +56,7 @@
         <view wx:for="{{rosterA}}" wx:key="_id"
               class="option {{item.checked ? 'option-on' : ''}}"
               data-side="A" data-index="{{index}}" bindtap="toggleMember">
-          {{item.name}}<text class="opt-lv">{{item.level}}</text>
+          {{item.name}}<text wx:if="{{canSeeLevel}}" class="opt-lv">{{item.level}}</text>
         </view>
       </view>
     </view>
@@ -70,7 +70,7 @@
         <view wx:for="{{rosterB}}" wx:key="_id"
               class="option {{item.checked ? 'option-on' : ''}}"
               data-side="B" data-index="{{index}}" bindtap="toggleMember">
-          {{item.name}}<text class="opt-lv">{{item.level}}</text>
+          {{item.name}}<text wx:if="{{canSeeLevel}}" class="opt-lv">{{item.level}}</text>
         </view>
       </view>
     </view>

@@ -4,7 +4,7 @@ const api = require('../../utils/api.js')
 
 Page({
   data: {
-    eventId: '',
+    tournamentId: '',
     matchId: '',
     loading: true,
     failMessage: '',
@@ -22,6 +22,7 @@ Page({
     scoreA: '',
     scoreB: '',
     scoreHint: '',
+    canSeeLevel: false,
 
     mvpCandidates: [],      // 败方的上场队员
     mvpSide: '',            // 'A' | 'B'，哪一方是败方
@@ -30,17 +31,18 @@ Page({
 
   onLoad: function (q) {
     const that = this
-    this.setData({ eventId: q.eventId || '', matchId: q.matchId || '' })
+    this.setData({ tournamentId: q.tournamentId || '', matchId: q.matchId || '' })
     if (q.matchId) wx.setNavigationBarTitle({ title: '修改比赛' })
 
     // 队伍成员带姓名和水平，从 getDivision 拿；listMatches 只返回 id。
-    api.team('getDivision', { eventId: q.eventId }, { loading: '加载中', toastError: false })
+    api.team('getDivision', { tournamentId: q.tournamentId }, { loading: '加载中', toastError: false })
       .then(function (d) {
         if (!d.division) {
           that.setData({ loading: false, failMessage: '还没有分队结果，无法记录比赛' })
           return null
         }
         that.setData({
+          canSeeLevel: !!d.canSeeLevel,
           teams: d.division.teams.map(function (t) {
             return { index: t.index, name: t.name, members: t.members }
           }),
@@ -57,7 +59,7 @@ Page({
   /** 修改已有比赛时回填。复用 listMatches，不另开一个 getMatch 接口。 */
   prefill: function (matchId) {
     const that = this
-    return api.match('listMatches', { eventId: this.data.eventId },
+    return api.match('listMatches', { tournamentId: this.data.tournamentId },
       { loading: false, toastError: false })
       .then(function (d) {
         const m = (d.list || []).filter(function (x) { return x._id === matchId })[0]
@@ -221,7 +223,7 @@ Page({
     const that = this
     this.setData({ submitting: true })
     api.match('saveMatch', {
-      eventId: d.eventId,
+      tournamentId: d.tournamentId,
       matchId: d.matchId,
       teamAIndex: d.teamAIndex,
       teamBIndex: d.teamBIndex,

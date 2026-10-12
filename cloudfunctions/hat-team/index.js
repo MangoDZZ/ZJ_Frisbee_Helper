@@ -1,28 +1,36 @@
 'use strict'
 
 /**
- * 分队与约束云函数。
+ * 赛事、约束与分队云函数。
  *
- * 分队算法在小程序端跑（毫秒级，"重新分队"按钮能秒响应，也省云函数调用配额），
- * 这里只负责校验和持久化。校验不能省：
- *  - 名单必须与真实报名记录完全一致，防止客户端塞进不存在的人或漏人；
- *  - 统计一律服务端按报名记录重算，不采信客户端传来的数字，避免伪造或漂移。
+ * 层级：活动(event) → 赛事(tournament) → 分队(division) → 比赛(match)
+ * 报名在活动层，所以 signupId 是活动内的人员主键；赛事各自记录「到场名单」，
+ * 分队只从当次到场的人里抽。
+ *
+ * 分队算法在小程序端跑，这里只负责校验和持久化。校验不能省：
+ *  - 名单必须与该赛事的到场名单完全一致，防止客户端塞进不存在的人或漏人；
+ *  - 统计一律服务端按报名记录重算，不采信客户端传来的数字。
  */
 
 const cloud = require('wx-server-sdk')
 
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 
+const roles = require('./lib/roles.js')
+
 const db = cloud.database()
-const _ = db.command
 const events = db.collection('events')
 const signups = db.collection('signups')
 const constraints = db.collection('constraints')
 const divisions = db.collection('divisions')
+const tournaments = db.collection('tournaments')
 const matchesCol = db.collection('matches')
 
 const STAR_LEVEL = 4
 const MAX_CONSTRAINTS = 200
+const MAX_TOURNAMENTS = 50
+const MIN_TEAMS = 2
+const MAX_TEAMS = 20
 
 function ok (data) { return { ok: true, data: data === undefined ? null : data } }
 function err (code, message, detail) {
@@ -30,6 +38,19 @@ function err (code, message, detail) {
 }
 
 function trimStr (v) { return typeof v === 'string' ? v.trim() : '' }
+
+function asInt (v) {
+  if (typeof v === 'number') {
+    return isFinite(v) && Math.floor(v) === v ? v : null
+  }
+  if (typeof v === 'string') {
+    const s = v.trim()
+    if (s === '') return null
+    const n = Number(s)
+    return isFinite(n) && Math.floor(n) === n ? n : null
+  }
+  return null
+}
 
 async function loadEvent (eventId) {
   const id = trimStr(eventId)
@@ -39,9 +60,21 @@ async function loadEvent (eventId) {
   return { value: Object.assign({ _id: id }, res.data) }
 }
 
-function requireOwner (evt, openid) {
-  if (evt.ownerOpenid !== openid) {
-    return err('FORBIDDEN', '只有活动创建者可以进行此操作')
+/** 赛事连同它所属的活动一起取出来——权限判断要用活动的 ownerOpenid。 */
+async function loadTournament (tournamentId) {
+  const id = trimStr(tournamentId)
+  if (!id) return { error: err('INVALID_INPUT', '缺少赛事 id') }
+  const res = await tournaments.doc(id).get().catch(function () { return null })
+  if (!res || !res.data) return { error: err('NOT_FOUND', '赛事不存在或已被删除') }
+  const t = Object.assign({ _id: id }, res.data)
+  const e = await loadEvent(t.eventId)
+  if (e.error) return e
+  return { value: { tournament: t, evt: e.value } }
+}
+
+function requireOrganizer (evt, openid) {
+  if (!roles.isOrganizer(evt, openid)) {
+    return err('FORBIDDEN', '只有活动创建者或管理员可以进行此操作')
   }
   return null
 }
@@ -69,12 +102,227 @@ async function loadSignups (eventId) {
   return { list: all, byId: byId }
 }
 
+async function countMatchesOf (tournamentId) {
+  const res = await matchesCol.where({ tournamentId: tournamentId }).count()
+  return res.total
+}
+
+/**
+ * 按身份裁掉水平信息。
+ *
+ * 必须在云函数出口剥离，不能只靠前端不渲染——数据照样发到了客户端，
+ * 在调试工具里一看就有。
+ */
+function stripLevel (member) {
+  return { _id: member._id, name: member.name, gender: member.gender }
+}
+
+function stripTeamStats (stats) {
+  // 人数和男女比例是公开信息，水平相关的一律拿掉。
+  return { count: stats.count, male: stats.male, female: stats.female }
+}
+
+/** 校验到场名单：必须是该活动报名记录的子集，去重，且够分队。 */
+function pickAttendees (raw, signupsById, teamCount) {
+  const list = Array.isArray(raw) ? raw : []
+  const out = []
+  for (let i = 0; i < list.length; i++) {
+    const id = trimStr(list[i])
+    if (!id) continue
+    if (!signupsById[id]) {
+      return { error: err('UNKNOWN_PLAYER', '到场名单里有不属于这场活动的人：' + id, { id: id }) }
+    }
+    if (out.indexOf(id) < 0) out.push(id)
+  }
+  if (out.length < teamCount) {
+    return {
+      error: err('NOT_ENOUGH_ATTENDEES',
+        '到场 ' + out.length + ' 人，少于 ' + teamCount + ' 个队，无法分队'),
+    }
+  }
+  return { value: out }
+}
+
 const actions = {
-  /** 覆盖式写入这场活动的全部约束。 */
+  // ---------------------------------------------------------------- 赛事
+
+  async createTournament (d, openid) {
+    const e = await loadEvent(d.eventId)
+    if (e.error) return e.error
+    const evt = e.value
+    const forbidden = requireOrganizer(evt, openid)
+    if (forbidden) return forbidden
+
+    const name = trimStr(d.name)
+    if (!name) return err('INVALID_INPUT', '请填写赛事名称')
+    if (name.length > 30) return err('INVALID_INPUT', '赛事名称不要超过 30 个字')
+
+    const teamCount = asInt(d.teamCount)
+    if (teamCount === null || teamCount < MIN_TEAMS || teamCount > MAX_TEAMS) {
+      return err('INVALID_INPUT', '队伍数需要是 ' + MIN_TEAMS + ' 到 ' + MAX_TEAMS + ' 之间的整数')
+    }
+
+    const su = await loadSignups(evt._id)
+    const att = pickAttendees(d.attendeeIds, su.byId, teamCount)
+    if (att.error) return att.error
+
+    const existing = await tournaments.where({ eventId: evt._id }).count()
+    if (existing.total >= MAX_TOURNAMENTS) {
+      return err('TOO_MANY', '一个活动最多 ' + MAX_TOURNAMENTS + ' 场赛事')
+    }
+
+    const now = Date.now()
+    const res = await tournaments.add({
+      data: {
+        eventId: evt._id,
+        name: name,
+        teamCount: teamCount,
+        attendeeIds: att.value,
+        status: 'draft',
+        createTime: now,
+        updateTime: now,
+        createdBy: openid,
+      },
+    })
+    return ok({ _id: res._id })
+  },
+
+  async updateTournament (d, openid) {
+    const t = await loadTournament(d.tournamentId)
+    if (t.error) return t.error
+    const forbidden = requireOrganizer(t.value.evt, openid)
+    if (forbidden) return forbidden
+    const tour = t.value.tournament
+
+    const name = trimStr(d.name)
+    if (!name) return err('INVALID_INPUT', '请填写赛事名称')
+    const teamCount = asInt(d.teamCount)
+    if (teamCount === null || teamCount < MIN_TEAMS || teamCount > MAX_TEAMS) {
+      return err('INVALID_INPUT', '队伍数需要是 ' + MIN_TEAMS + ' 到 ' + MAX_TEAMS + ' 之间的整数')
+    }
+
+    const su = await loadSignups(tour.eventId)
+    const att = pickAttendees(d.attendeeIds, su.byId, teamCount)
+    if (att.error) return att.error
+
+    // 已录比赛就不能再动到场名单和队伍数——比赛记录引用的是队员 id 和队伍序号。
+    const played = await countMatchesOf(tour._id)
+    if (played > 0) {
+      const sameTeams = teamCount === tour.teamCount
+      const sameAtt = att.value.length === (tour.attendeeIds || []).length &&
+        att.value.every(function (id) { return (tour.attendeeIds || []).indexOf(id) >= 0 })
+      if (!sameTeams || !sameAtt) {
+        return err('MATCHES_EXIST',
+          '这场赛事已经记录了 ' + played + ' 场比赛，不能再改到场名单或队伍数。' +
+          '如果确实要改，请先删掉这场赛事的比赛记录。',
+          { matchCount: played })
+      }
+    }
+
+    await tournaments.doc(tour._id).update({
+      data: {
+        name: name,
+        teamCount: teamCount,
+        attendeeIds: att.value,
+        updateTime: Date.now(),
+      },
+    })
+    return ok({ _id: tour._id })
+  },
+
+  async listTournaments (d, openid) {
+    const e = await loadEvent(d.eventId)
+    if (e.error) return e.error
+    const evt = e.value
+    const isOrganizer = roles.isOrganizer(evt, openid)
+
+    const res = await tournaments.where({ eventId: evt._id })
+      .orderBy('createTime', 'asc').limit(MAX_TOURNAMENTS).get()
+    const rows = res.data || []
+
+    const list = []
+    for (let i = 0; i < rows.length; i++) {
+      const t = rows[i]
+      const pub = await divisions.where({ tournamentId: t._id, published: true })
+        .limit(1).count()
+      const played = await countMatchesOf(t._id)
+      list.push({
+        _id: t._id,
+        name: t.name,
+        teamCount: t.teamCount,
+        attendeeCount: (t.attendeeIds || []).length,
+        published: pub.total > 0,
+        matchCount: played,
+        createTime: t.createTime,
+      })
+    }
+
+    return ok({ isOrganizer: isOrganizer, eventName: evt.name, list: list })
+  },
+
+  /** 赛事详情。到场名单带水平只给管理身份——参与者看不到任何人的水平。 */
+  async getTournament (d, openid) {
+    const t = await loadTournament(d.tournamentId)
+    if (t.error) return t.error
+    const tour = t.value.tournament
+    const evt = t.value.evt
+    const isOrganizer = roles.isOrganizer(evt, openid)
+    const seeLevel = roles.canSeeLevel(evt, openid)
+
+    const su = await loadSignups(tour.eventId)
+    const attendees = (tour.attendeeIds || []).map(function (id) {
+      const p = su.byId[id] || { _id: id, name: '(已退出)', gender: 'U', level: 0 }
+      return seeLevel ? p : stripLevel(p)
+    })
+    const played = await countMatchesOf(tour._id)
+
+    return ok({
+      isOrganizer: isOrganizer,
+      eventId: tour.eventId,
+      eventName: evt.name,
+      tournament: {
+        _id: tour._id,
+        name: tour.name,
+        teamCount: tour.teamCount,
+        attendeeIds: tour.attendeeIds || [],
+        status: tour.status,
+        createTime: tour.createTime,
+      },
+      attendees: attendees,
+      matchCount: played,
+    })
+  },
+
+  /** 删赛事，连带清掉它的分队和比赛记录。 */
+  async removeTournament (d, openid) {
+    const t = await loadTournament(d.tournamentId)
+    if (t.error) return t.error
+    const forbidden = requireOrganizer(t.value.evt, openid)
+    if (forbidden) return forbidden
+    const tour = t.value.tournament
+
+    for (;;) {
+      const removed = await matchesCol.where({ tournamentId: tour._id }).limit(100).remove()
+      if (!removed.stats || removed.stats.removed < 100) break
+    }
+    for (;;) {
+      const removed = await divisions.where({ tournamentId: tour._id }).limit(100).remove()
+      if (!removed.stats || removed.stats.removed < 100) break
+    }
+    await tournaments.doc(tour._id).remove()
+    return ok({ removed: true })
+  },
+
+  // ---------------------------------------------------------------- 约束
+
+  /**
+   * 覆盖式写入约束。约束挂在**活动**层：「这两个人别同队」对该活动的每场赛事都适用，
+   * 不需要每开一场赛事重设一遍。
+   */
   async setConstraints (d, openid) {
     const e = await loadEvent(d.eventId)
     if (e.error) return e.error
-    const forbidden = requireOwner(e.value, openid)
+    const forbidden = requireOrganizer(e.value, openid)
     if (forbidden) return forbidden
 
     const raw = Array.isArray(d.constraints) ? d.constraints : []
@@ -129,7 +377,7 @@ const actions = {
   async listConstraints (d, openid) {
     const e = await loadEvent(d.eventId)
     if (e.error) return e.error
-    const forbidden = requireOwner(e.value, openid)
+    const forbidden = requireOrganizer(e.value, openid)
     if (forbidden) return forbidden
 
     const res = await constraints.where({ eventId: e.value._id })
@@ -140,16 +388,18 @@ const actions = {
     return ok({ list: list })
   },
 
+  // ---------------------------------------------------------------- 分队
+
   /**
    * 保存一次分队结果，每次存一个新版本（可对比、可回滚）。
    * 手动换人也走这里——客户端改完整个名单再提交，不另开一条改动路径。
    */
   async saveDivision (d, openid) {
-    const e = await loadEvent(d.eventId)
-    if (e.error) return e.error
-    const evt = e.value
-    const forbidden = requireOwner(evt, openid)
+    const t = await loadTournament(d.tournamentId)
+    if (t.error) return t.error
+    const forbidden = requireOrganizer(t.value.evt, openid)
     if (forbidden) return forbidden
+    const tour = t.value.tournament
 
     const teamsIn = Array.isArray(d.teams) ? d.teams : []
     if (teamsIn.length < 1) return err('INVALID_INPUT', '没有队伍数据')
@@ -157,32 +407,38 @@ const actions = {
     // 已经录了比赛就不能再改分队：比赛记录引用的是队伍序号和队员 id，
     // 重新分队会让这些引用全部失效，产生"某人的积分属于一支不存在的队"这种
     // 说不清的状态。宁可让组织者多一步，也不要留下对不上的数据。
-    const played = await matchesCol.where({ eventId: evt._id }).count()
-    if (played.total > 0) {
+    const played = await countMatchesOf(tour._id)
+    if (played > 0) {
       return err('MATCHES_EXIST',
-        '已经记录了 ' + played.total + ' 场比赛，不能再重新分队。' +
-        '如果确实要重分，请先删掉全部比赛记录。',
-        { matchCount: played.total })
+        '这场赛事已经记录了 ' + played + ' 场比赛，不能再重新分队。' +
+        '如果确实要重分，请先删掉这场赛事的比赛记录。',
+        { matchCount: played })
     }
 
-    const su = await loadSignups(evt._id)
-    const expected = Object.keys(su.byId)
+    const su = await loadSignups(tour.eventId)
+    // 名单基准是这场赛事的**到场名单**，不是活动的全部报名。
+    const expected = (tour.attendeeIds || []).slice()
 
-    // 名单必须与真实报名记录完全一致：不重复、不遗漏、无幽灵成员。
     const seen = {}
     const teams = []
     for (let i = 0; i < teamsIn.length; i++) {
-      const t = teamsIn[i] || {}
-      const ids = Array.isArray(t.memberIds) ? t.memberIds : []
+      const ti = teamsIn[i] || {}
+      const ids = Array.isArray(ti.memberIds) ? ti.memberIds : []
       const members = []
       let count = 0; let male = 0; let female = 0
       let star = 0; let levelSum = 0
       for (let j = 0; j < ids.length; j++) {
         const id = trimStr(ids[j])
-        const p = su.byId[id]
-        if (!p) return err('UNKNOWN_PLAYER', '分队名单里有不存在的报名记录：' + id, { id: id })
-        if (seen[id]) return err('INVALID_INPUT', p.name + ' 被分到了多个队', { id: id })
+        if (expected.indexOf(id) < 0) {
+          const p = su.byId[id]
+          return err('UNKNOWN_PLAYER',
+            '分队名单里有不在本场到场名单中的人：' + (p ? p.name : id), { id: id })
+        }
+        if (seen[id]) {
+          return err('INVALID_INPUT', su.byId[id].name + ' 被分到了多个队', { id: id })
+        }
         seen[id] = true
+        const p = su.byId[id]
         members.push(id)
         count++
         if (p.gender === 'M') male++
@@ -192,7 +448,7 @@ const actions = {
       }
       teams.push({
         index: i,
-        name: trimStr(t.name) || (i + 1) + '队',
+        name: trimStr(ti.name) || (i + 1) + '队',
         memberIds: members,
         // 统计服务端重算，不采信客户端传来的数字。
         stats: {
@@ -208,20 +464,23 @@ const actions = {
 
     const missing = expected.filter(function (id) { return !seen[id] })
     if (missing.length > 0) {
-      const names = missing.slice(0, 5).map(function (id) { return su.byId[id].name })
+      const names = missing.slice(0, 5).map(function (id) {
+        return su.byId[id] ? su.byId[id].name : id
+      })
       return err('INCOMPLETE_DIVISION',
         '有 ' + missing.length + ' 人没有被分到队：' + names.join('、') +
         (missing.length > 5 ? ' 等' : ''),
         { missing: missing })
     }
 
-    const last = await divisions.where({ eventId: evt._id })
+    const last = await divisions.where({ tournamentId: tour._id })
       .orderBy('version', 'desc').limit(1).get()
     const version = last.data && last.data[0] ? last.data[0].version + 1 : 1
 
     const res = await divisions.add({
       data: {
-        eventId: evt._id,
+        tournamentId: tour._id,
+        eventId: tour.eventId,
         version: version,
         seed: d.seed == null ? null : String(d.seed),
         teams: teams,
@@ -233,38 +492,50 @@ const actions = {
   },
 
   /**
-   * 读取分队结果。创建者看最新版本；参与者只能看已发布的版本，
-   * 否则会在组织者还在调整时就看到中间状态。
+   * 读取分队结果。管理身份看最新版本；参与者只能看已发布的版本，
+   * 否则会在组织者还在调整时就看到中间状态。水平按身份剥离。
    */
   async getDivision (d, openid) {
-    const e = await loadEvent(d.eventId)
-    if (e.error) return e.error
-    const evt = e.value
-    const isOwner = evt.ownerOpenid === openid
+    const t = await loadTournament(d.tournamentId)
+    if (t.error) return t.error
+    const tour = t.value.tournament
+    const evt = t.value.evt
+    const isOrganizer = roles.isOrganizer(evt, openid)
+    const seeLevel = roles.canSeeLevel(evt, openid)
 
-    let query = divisions.where({ eventId: evt._id })
-    if (!isOwner) query = divisions.where({ eventId: evt._id, published: true })
+    let query = divisions.where({ tournamentId: tour._id })
+    if (!isOrganizer) query = divisions.where({ tournamentId: tour._id, published: true })
 
     const res = await query.orderBy('version', 'desc').limit(1).get()
     const div = res.data && res.data[0]
-    if (!div) return ok({ division: null, isOwner: isOwner })
+    if (!div) {
+      return ok({ division: null, isOwner: isOrganizer, isOrganizer: isOrganizer })
+    }
 
-    const su = await loadSignups(evt._id)
-    const teams = (div.teams || []).map(function (t) {
-      const members = (t.memberIds || []).map(function (id) {
-        const p = su.byId[id]
+    const su = await loadSignups(tour.eventId)
+    const teams = (div.teams || []).map(function (team) {
+      const members = (team.memberIds || []).map(function (id) {
         // 报名记录被删掉的情况下给个占位，避免整页渲染不出来。
-        return p || { _id: id, name: '(已退出)', gender: 'U', level: 0 }
+        return su.byId[id] || { _id: id, name: '(已退出)', gender: 'U', level: 0 }
       })
       members.sort(function (a, b) {
         if (b.level !== a.level) return b.level - a.level
         return a.name < b.name ? -1 : a.name > b.name ? 1 : 0
       })
-      return { index: t.index, name: t.name, stats: t.stats, members: members }
+      return {
+        index: team.index,
+        name: team.name,
+        stats: seeLevel ? team.stats : stripTeamStats(team.stats),
+        members: seeLevel ? members : members.map(stripLevel),
+      }
     })
 
     return ok({
-      isOwner: isOwner,
+      isOwner: isOrganizer,
+      isOrganizer: isOrganizer,
+      canSeeLevel: seeLevel,
+      tournamentName: tour.name,
+      eventId: tour.eventId,
       division: {
         _id: div._id,
         version: div.version,
@@ -277,61 +548,62 @@ const actions = {
   },
 
   async publish (d, openid) {
-    const e = await loadEvent(d.eventId)
-    if (e.error) return e.error
-    const evt = e.value
-    const forbidden = requireOwner(evt, openid)
+    const t = await loadTournament(d.tournamentId)
+    if (t.error) return t.error
+    const forbidden = requireOrganizer(t.value.evt, openid)
     if (forbidden) return forbidden
+    const tour = t.value.tournament
 
     const divisionId = trimStr(d.divisionId)
     if (!divisionId) return err('INVALID_INPUT', '缺少分队记录 id')
     const target = await divisions.doc(divisionId).get().catch(function () { return null })
     if (!target || !target.data) return err('NOT_FOUND', '分队记录不存在')
-    if (target.data.eventId !== evt._id) {
-      return err('FORBIDDEN', '该分队记录不属于这场活动')
+    if (target.data.tournamentId !== tour._id) {
+      return err('FORBIDDEN', '该分队记录不属于这场赛事')
     }
 
-    // 同一活动只保留一个已发布版本，避免参与者读到两个"最新"。
+    // 同一赛事只保留一个已发布版本，避免参与者读到两个"最新"。
     const others = await divisions.where({
-      eventId: evt._id, published: true, _id: _.neq(divisionId),
+      tournamentId: tour._id, published: true,
     }).limit(100).get()
     for (let i = 0; i < (others.data || []).length; i++) {
+      if (others.data[i]._id === divisionId) continue
       await divisions.doc(others.data[i]._id).update({ data: { published: false } })
     }
 
     await divisions.doc(divisionId).update({ data: { published: true } })
-    await events.doc(evt._id).update({
+    await tournaments.doc(tour._id).update({
       data: { status: 'divided', updateTime: Date.now() },
     })
     return ok({ published: true })
   },
 
-  /** 撤销发布，活动回到"报名已关闭"，可以重新分队。 */
   async unpublish (d, openid) {
-    const e = await loadEvent(d.eventId)
-    if (e.error) return e.error
-    const evt = e.value
-    const forbidden = requireOwner(evt, openid)
+    const t = await loadTournament(d.tournamentId)
+    if (t.error) return t.error
+    const forbidden = requireOrganizer(t.value.evt, openid)
     if (forbidden) return forbidden
+    const tour = t.value.tournament
 
-    const all = await divisions.where({ eventId: evt._id, published: true }).limit(100).get()
+    const all = await divisions.where({
+      tournamentId: tour._id, published: true,
+    }).limit(100).get()
     for (let i = 0; i < (all.data || []).length; i++) {
       await divisions.doc(all.data[i]._id).update({ data: { published: false } })
     }
-    await events.doc(evt._id).update({
-      data: { status: 'closed', updateTime: Date.now() },
+    await tournaments.doc(tour._id).update({
+      data: { status: 'draft', updateTime: Date.now() },
     })
     return ok({ published: false })
   },
 
-  /** 历史版本列表，供对比与回滚。 */
   async listDivisions (d, openid) {
-    const e = await loadEvent(d.eventId)
-    if (e.error) return e.error
-    const forbidden = requireOwner(e.value, openid)
+    const t = await loadTournament(d.tournamentId)
+    if (t.error) return t.error
+    const forbidden = requireOrganizer(t.value.evt, openid)
     if (forbidden) return forbidden
 
-    const res = await divisions.where({ eventId: e.value._id })
+    const res = await divisions.where({ tournamentId: t.value.tournament._id })
       .orderBy('version', 'desc').limit(20).get()
     const list = (res.data || []).map(function (x) {
       return {

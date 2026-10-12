@@ -1,21 +1,23 @@
 'use strict'
 
 const api = require('../../utils/api.js')
-const fmt = require('../../utils/format.js')
 const divider = require('../../utils/divide.js')
 
 Page({
   data: {
+    tournamentId: '',
     eventId: '',
     loading: true,
     failMessage: '',
-    event: null,
-    isOwner: false,
+    tournamentName: '',
+    isOrganizer: false,
+    canSeeLevel: false,
     division: null,
     teams: [],
     metaText: '',
     qualityText: '',
     warnings: [],
+    droppedConstraintText: '',
     // 手动换人：先点一个人选中，再点另一队的人交换
     selectedId: '',
     selectedName: '',
@@ -24,73 +26,79 @@ Page({
   },
 
   onLoad: function (q) {
-    this.setData({ eventId: q.eventId || '', autoRun: q.run === '1' })
+    this.setData({ tournamentId: q.tournamentId || '', autoRun: q.run === '1' })
     this.boot()
   },
 
   onShareAppMessage: function () {
-    const e = this.data.event
     return {
-      title: e ? e.name + ' 分队结果' : '飞盘 HAT 分队结果',
-      path: '/pages/division/division?eventId=' + this.data.eventId,
+      title: (this.data.tournamentName || '飞盘 HAT') + ' 分队结果',
+      path: '/pages/division/division?tournamentId=' + this.data.tournamentId,
     }
   },
 
   boot: function () {
     const that = this
-    return api.event('detail', { eventId: this.data.eventId },
+    return api.team('getTournament', { tournamentId: this.data.tournamentId },
       { loading: false, toastError: false })
       .then(function (d) {
-        that.setData({ event: d.event, isOwner: d.isOwner })
-        if (!d.isOwner) return that.refresh()
-        // 组织者需要名单和约束才能（重新）分队。
-        return Promise.all([
-          api.signup('listAll', { eventId: that.data.eventId }, { loading: false }),
-          api.team('listConstraints', { eventId: that.data.eventId }, { loading: false }),
-        ]).then(function (r) {
-          const roster = r[0].list || []
-          const cons = r[1].list || []
-          const nameById = {}
-          roster.forEach(function (s) { nameById[s._id] = s.name })
-          that.setData({ roster: roster, cons: cons, nameById: nameById })
-          if (that.data.autoRun) return that.compute()
-          return that.refresh().then(function () {
-            // 还没有任何分队记录时直接算一次，省掉一次多余的点击。
-            if (!that.data.division) return that.compute()
-          })
+        that.setData({
+          eventId: d.eventId,
+          tournamentName: d.tournament.name,
+          isOrganizer: d.isOrganizer,
+          teamCount: d.tournament.teamCount,
+          attendees: d.attendees,
         })
+        wx.setNavigationBarTitle({ title: d.tournament.name })
+
+        if (!d.isOrganizer) return that.refresh()
+
+        return api.team('listConstraints', { eventId: d.eventId }, { loading: false })
+          .then(function (c) {
+            const nameById = {}
+            d.attendees.forEach(function (p) { nameById[p._id] = p.name })
+            that.setData({ cons: c.list || [], nameById: nameById })
+            if (that.data.autoRun) return that.compute()
+            return that.refresh().then(function () {
+              if (!that.data.division) return that.compute()
+            })
+          })
       })
       .catch(function (e) {
         that.setData({ loading: false, failMessage: e.message })
       })
   },
 
-  /** 从云端读取当前分队结果——服务端是唯一事实来源，显示的一定是存下来的。 */
+  /** 从云端读取当前分队结果——服务端是唯一事实来源。 */
   refresh: function () {
     const that = this
-    return api.team('getDivision', { eventId: this.data.eventId },
+    return api.team('getDivision', { tournamentId: this.data.tournamentId },
       { loading: false, toastError: false })
       .then(function (d) {
-        that.setData({ loading: false })
+        that.setData({ loading: false, canSeeLevel: !!d.canSeeLevel })
         if (!d.division) {
           that.setData({ division: null, teams: [] })
           return
         }
-        that.render(d.division)
+        that.render(d.division, !!d.canSeeLevel)
       })
       .catch(function (e) {
         that.setData({ loading: false, failMessage: e.message })
       })
   },
 
-  render: function (division) {
+  render: function (division, canSeeLevel) {
     const teams = (division.teams || []).map(function (t) {
+      const s = t.stats
       return {
         index: t.index,
         name: t.name,
-        stats: t.stats,
-        statsText: t.stats.count + '人 · ' + t.stats.male + '男' + t.stats.female + '女 · 均分' +
-          t.stats.avgLevel + ' · 高分' + t.stats.star + '人',
+        stats: s,
+        // 水平不公开：非管理身份只显示人数和男女，不显示均分和高分人数
+        statsText: canSeeLevel
+          ? s.count + '人 · ' + s.male + '男' + s.female + '女 · 均分' +
+            s.avgLevel + ' · 高分' + s.star + '人'
+          : s.count + '人 · ' + s.male + '男' + s.female + '女',
         members: (t.members || []).map(function (m) {
           return {
             _id: m._id,
@@ -102,57 +110,73 @@ Page({
       }
     })
 
-    const spread = describeSpread(teams)
     this.setData({
       division: division,
       teams: teams,
       metaText: '第 ' + division.version + ' 版' +
         (division.published ? ' · 已发布' : ' · 未发布') +
         (division.seed ? ' · seed ' + division.seed : ''),
-      qualityText: spread,
+      qualityText: canSeeLevel ? describeSpread(teams) : '',
       selectedId: '',
       selectedName: '',
       conflictText: this.checkConflicts(teams),
     })
   },
 
-  /** 在本机跑分队算法，然后存到云端。毫秒级，所以"重新分队"可以秒响应。 */
+  /** 在本机跑分队算法，然后存到云端。 */
   compute: function () {
     const that = this
-    const roster = this.data.roster || []
-    const event = this.data.event
-    if (roster.length < event.teamCount) {
+    const attendees = this.data.attendees || []
+    const teamCount = this.data.teamCount
+
+    if (attendees.length < teamCount) {
       this.setData({
         loading: false,
-        failMessage: '只有 ' + roster.length + ' 人报名，少于 ' + event.teamCount + ' 个队',
+        failMessage: '到场 ' + attendees.length + ' 人，少于 ' + teamCount + ' 个队',
       })
       return Promise.resolve()
     }
 
-    const players = roster.map(function (s) {
+    const players = attendees.map(function (s) {
       return { id: s._id, name: s.name, gender: s.gender, level: s.level }
     })
-    const cons = (this.data.cons || []).map(function (c) {
-      return { type: c.type, ids: c.signupIds }
+
+    // 约束挂在活动层，可能牵涉到本场没来的人。把缺席的人从约束里摘掉，
+    // 剩下不足 2 人的整条丢弃——否则算法会因为引用了不存在的球员直接报错。
+    const present = {}
+    attendees.forEach(function (p) { present[p._id] = true })
+    const cons = []
+    let dropped = 0
+    ;(this.data.cons || []).forEach(function (c) {
+      const kept = (c.signupIds || []).filter(function (id) { return present[id] })
+      if (kept.length < 2) {
+        if ((c.signupIds || []).length >= 2) dropped++
+        return
+      }
+      if (kept.length < (c.signupIds || []).length) dropped++
+      cons.push({ type: c.type, ids: kept })
     })
 
     wx.showLoading({ title: '分队中', mask: true })
-    const res = divider.divide(players, event.teamCount, cons)
+    const res = divider.divide(players, teamCount, cons)
     wx.hideLoading()
 
     if (!res.ok) {
       this.setData({ loading: false })
-      wx.showModal({
-        title: '无法完成分队',
-        content: res.error.message,
-        showCancel: false,
-      })
+      wx.showModal({ title: '无法完成分队', content: res.error.message, showCancel: false })
       return Promise.resolve()
     }
 
-    this.setData({ warnings: res.warnings || [], busy: true })
+    this.setData({
+      warnings: res.warnings || [],
+      droppedConstraintText: dropped > 0
+        ? '有 ' + dropped + ' 条约束因为相关的人本场没到，已自动忽略或只保留了到场的部分'
+        : '',
+      busy: true,
+    })
+
     return api.team('saveDivision', {
-      eventId: this.data.eventId,
+      tournamentId: this.data.tournamentId,
       seed: res.seed,
       teams: res.teams.map(function (t) {
         return { name: t.name, memberIds: t.memberIds }
@@ -172,25 +196,17 @@ Page({
     this.compute()
   },
 
-  goMatches: function () {
-    wx.navigateTo({ url: '/pages/matches/matches?eventId=' + this.data.eventId })
-  },
-
-  goLeaderboard: function () {
-    wx.navigateTo({ url: '/pages/leaderboard/leaderboard?eventId=' + this.data.eventId })
-  },
-
   // ---------------- 手动换人 ----------------
 
   tapMember: function (e) {
-    if (!this.data.isOwner) return
+    if (!this.data.isOrganizer) return
     const id = e.currentTarget.dataset.id
     const teamIndex = Number(e.currentTarget.dataset.team)
 
     if (!this.data.selectedId) {
       this.setData({
         selectedId: id,
-        selectedName: this.data.nameById[id] || '',
+        selectedName: (this.data.nameById || {})[id] || '',
         selectedTeam: teamIndex,
       })
       return
@@ -200,8 +216,7 @@ Page({
       return
     }
     if (this.data.selectedTeam === teamIndex) {
-      // 同队内互换没有意义，改成把选中目标切到新点的人。
-      this.setData({ selectedId: id, selectedName: this.data.nameById[id] || '' })
+      this.setData({ selectedId: id, selectedName: (this.data.nameById || {})[id] || '' })
       return
     }
     this.swap(this.data.selectedId, id)
@@ -227,13 +242,10 @@ Page({
     const doSave = function () {
       that.setData({ busy: true })
       api.team('saveDivision', {
-        eventId: that.data.eventId,
+        tournamentId: that.data.tournamentId,
         seed: that.data.division ? that.data.division.seed : null,
         teams: teams.map(function (t) {
-          return {
-            name: t.name,
-            memberIds: t.members.map(function (m) { return m._id }),
-          }
+          return { name: t.name, memberIds: t.members.map(function (m) { return m._id }) }
         }),
       }, { loading: '保存中' })
         .then(function () {
@@ -277,7 +289,11 @@ Page({
 
     const msgs = []
     for (let c = 0; c < cons.length; c++) {
-      const ids = cons[c].signupIds || []
+      // 只检查本场到场的那部分
+      const ids = (cons[c].signupIds || []).filter(function (id) {
+        return teamOf[id] !== undefined
+      })
+      if (ids.length < 2) continue
       const names = ids.map(function (id) { return nameById[id] || '?' }).join('、')
       if (cons[c].type === 'together') {
         for (let i = 1; i < ids.length; i++) {
@@ -302,12 +318,12 @@ Page({
     return msgs.join('；')
   },
 
-  // ---------------- 发布 ----------------
+  // ---------------- 发布与跳转 ----------------
 
   publish: function () {
     const that = this
     api.team('publish', {
-      eventId: this.data.eventId,
+      tournamentId: this.data.tournamentId,
       divisionId: this.data.division._id,
     }, { loading: '发布中' })
       .then(function () {
@@ -321,14 +337,22 @@ Page({
     const that = this
     wx.showModal({
       title: '撤销发布',
-      content: '参与者将看不到分队结果，活动回到「报名关闭」状态。',
+      content: '参与者将看不到这场赛事的分队结果。',
       success: function (r) {
         if (!r.confirm) return
-        api.team('unpublish', { eventId: that.data.eventId }, { loading: '处理中' })
+        api.team('unpublish', { tournamentId: that.data.tournamentId }, { loading: '处理中' })
           .then(function () { return that.refresh() })
           .catch(function () {})
       },
     })
+  },
+
+  goMatches: function () {
+    wx.navigateTo({ url: '/pages/matches/matches?tournamentId=' + this.data.tournamentId })
+  },
+
+  goLeaderboard: function () {
+    wx.navigateTo({ url: '/pages/leaderboard/leaderboard?eventId=' + this.data.eventId })
   },
 })
 
@@ -344,7 +368,7 @@ function describeSpread (teams) {
     if (s.count > sizeMax) sizeMax = s.count
     if (s.female < fMin) fMin = s.female
     if (s.female > fMax) fMax = s.female
-    if (s.count > 0) {
+    if (s.count > 0 && s.avgLevel != null) {
       if (s.avgLevel < aMin) aMin = s.avgLevel
       if (s.avgLevel > aMax) aMax = s.avgLevel
     }

@@ -155,6 +155,7 @@ const FN = {
   signup: 'hat-signup',
   team: 'hat-team',
   match: 'hat-match',
+  admin: 'hat-admin',
 }
 const FN_KEYS = Object.keys(FN)
 const implemented = {}
@@ -199,6 +200,36 @@ function scanCalls (dir) {
   })
 }
 scanCalls(mp)
+
+// ---------------------------------------------------------------- 4. roles.js 副本一致
+
+console.log('检查各云函数的 roles.js 副本是否一致')
+// 云函数各自独立部署，没法共享代码，所以 roles.js 在每个函数里都有一份。
+// 一旦副本之间漂移，就会出现"同一个人在某个云函数里是管理员、在另一个里不是"
+// 这种极难排查的权限 bug。
+const roleCopies = []
+FN_KEYS.forEach(function (k) {
+  const p = path.join(root, 'cloudfunctions', FN[k], 'lib', 'roles.js')
+  if (!fs.existsSync(p)) {
+    bad('云函数 ' + FN[k] + ' 缺少 lib/roles.js')
+    return
+  }
+  roleCopies.push({ fn: FN[k], src: fs.readFileSync(p, 'utf8') })
+})
+if (roleCopies.length > 1) {
+  const base = roleCopies[0]
+  roleCopies.slice(1).forEach(function (c) {
+    if (c.src !== base.src) {
+      bad('roles.js 副本不一致：' + c.fn + ' 与 ' + base.fn + ' 内容不同，' +
+        '会导致同一个人在不同云函数里身份不一致')
+    }
+  })
+  // 管理员名单不能是空的，否则没人能管理记分员
+  const m = base.src.match(/const ADMIN_OPENIDS = \[([\s\S]*?)\]/)
+  if (!m || m[1].trim() === '') {
+    bad('ADMIN_OPENIDS 是空的，将没有任何人可以管理记分员')
+  }
+}
 
 // ---------------------------------------------------------------- 汇总
 

@@ -11,7 +11,7 @@ Page({
     event: null,
     isOwner: false,
     mySignup: null,
-    division: null,
+    tournaments: [],
     timeText: '',
     deadlineText: '',
     statusText: '',
@@ -62,23 +62,23 @@ Page({
             : expired ? '报名已截止'
               : full ? '名额已满' : '',
         })
-        return that.loadDivision()
+        return that.loadTournaments()
       })
       .catch(function (err) {
         that.setData({ loading: false, failMessage: err.message })
       })
   },
 
-  /** 分队结果单独取：参与者只看得到已发布的版本，没有就静默留空。 */
-  loadDivision: function () {
+  /** 赛事列表单独取，失败就静默留空（比如还没开赛）。 */
+  loadTournaments: function () {
     const that = this
-    return api.team('getDivision', { eventId: this.data.eventId },
+    return api.team('listTournaments', { eventId: this.data.eventId },
       { loading: false, toastError: false })
       .then(function (d) {
-        that.setData({ division: d.division })
+        that.setData({ tournaments: d.list || [] })
       })
       .catch(function () {
-        that.setData({ division: null })
+        that.setData({ tournaments: [] })
       })
   },
 
@@ -90,12 +90,8 @@ Page({
     wx.navigateTo({ url: '/pages/manage/manage?eventId=' + this.data.eventId })
   },
 
-  goDivision: function () {
-    wx.navigateTo({ url: '/pages/division/division?eventId=' + this.data.eventId })
-  },
-
-  goMatches: function () {
-    wx.navigateTo({ url: '/pages/matches/matches?eventId=' + this.data.eventId })
+  goTournaments: function () {
+    wx.navigateTo({ url: '/pages/tournaments/tournaments?eventId=' + this.data.eventId })
   },
 
   goLeaderboard: function () {

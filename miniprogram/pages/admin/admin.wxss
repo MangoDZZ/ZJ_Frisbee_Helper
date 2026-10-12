@@ -1,0 +1,23 @@
+.user-row {
+  display: flex;
+  align-items: center;
+  padding: 20rpx 0;
+  border-bottom: 2rpx solid #f4f5f7;
+}
+.user-row:last-child { border-bottom: none; }
+.user-main {
+  flex: 1;
+  min-width: 0;
+}
+.user-toggle {
+  flex: none;
+  padding: 10rpx 22rpx;
+  border-radius: 10rpx;
+  background: #eef2f5;
+  color: #374151;
+  font-size: 24rpx;
+}
+.toggle-on {
+  background: #1f6f4a;
+  color: #fff;
+}

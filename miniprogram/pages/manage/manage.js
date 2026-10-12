@@ -208,25 +208,11 @@ Page({
     wx.navigateTo({ url: '/pages/event-edit/event-edit?eventId=' + this.data.eventId })
   },
 
-  runDivision: function () {
-    const e = this.data.event
-    const n = this.data.roster.length
-    if (n < e.teamCount) {
-      wx.showModal({
-        title: '人不够',
-        content: '当前 ' + n + ' 人报名，少于 ' + e.teamCount + ' 个队，无法分队。',
-        showCancel: false,
-      })
-      return
-    }
-    // 分队算法在分队结果页跑，那里同时承载"重新分队"和"手动换人"，
-    // 不在两个页面各写一份调用。
-    wx.navigateTo({
-      url: '/pages/division/division?eventId=' + this.data.eventId + '&run=1',
-    })
+  goTournaments: function () {
+    wx.navigateTo({ url: '/pages/tournaments/tournaments?eventId=' + this.data.eventId })
   },
 
-  viewDivision: function () {
-    wx.navigateTo({ url: '/pages/division/division?eventId=' + this.data.eventId })
+  viewLeaderboard: function () {
+    wx.navigateTo({ url: '/pages/leaderboard/leaderboard?eventId=' + this.data.eventId })
   },
 })

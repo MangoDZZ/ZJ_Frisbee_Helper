@@ -4,8 +4,10 @@
  * 积分推导。纯函数，不依赖云环境，可在 Node 里直接测试。
  *
  * 积分刻意不入库，每次按比赛记录实时推导。存一份积分字段就一定会漂移——
- * 改一次比分、删一场比赛、换一次 MVP，存量数字就对不上了。一场活动几十人、
- * 十几场比赛，实时算是毫秒级的事，换来的是积分永远和战绩一致。
+ * 改一次比分、删一场比赛、换一次 MVP，存量数字就对不上了。
+ *
+ * 积分榜是**活动级汇总**：报名在活动层，signupId 就是活动内的人员主键，
+ * 所以跨赛事按它合并天然正确，计分过程压根不需要知道分队。
  */
 
 // 规则分值。将来要调分值改这三行即可。
@@ -23,43 +25,46 @@ function winnerOf (match) {
 function asArray (v) { return Array.isArray(v) ? v : [] }
 
 /**
- * @param {Array}  matches      比赛记录
- * @param {object} division     分队结果 { teams: [{ index, name, memberIds }] }
- * @param {object} signupsById  报名记录映射 { [signupId]: { name, gender, level } }
+ * @param {Array}  matches     该活动下所有赛事的比赛记录
+ * @param {object} signupsById 活动的全部报名 { [signupId]: { name, gender } }
  * @returns {{ rows: Array, totals: object }}
+ *
+ * 行里不带 level：积分榜对所有人可见，而球员水平是不公开的。
+ * 也不带队伍——同一个人在不同赛事属于不同队，汇总层面没有唯一队伍。
  */
-function computeStandings (matches, division, signupsById) {
-  const teams = (division && Array.isArray(division.teams)) ? division.teams : []
+function computeStandings (matches, signupsById) {
   const byId = signupsById || {}
 
-  // 先把分队名单里的每个人都建好一行，积分 0。
-  // 一场没打的人也要出现在榜上——组织者需要看到谁还没上过场。
+  // 先给每个报名的人建一行，积分 0。一场没打的人也要出现在榜上。
   const rows = []
   const rowOf = {}
-  for (let t = 0; t < teams.length; t++) {
-    const team = teams[t]
-    const ids = asArray(team.memberIds)
-    for (let i = 0; i < ids.length; i++) {
-      const id = ids[i]
-      if (rowOf[id]) continue
-      const p = byId[id]
-      const row = {
-        signupId: id,
-        // 报名记录被删掉时给占位，避免整页渲染不出来（与 getDivision 的处理一致）
-        name: p ? p.name : '(已退出)',
-        gender: p ? p.gender : 'U',
-        level: p ? p.level : 0,
-        teamIndex: team.index,
-        teamName: team.name,
-        points: 0,
-        played: 0,
-        won: 0,
-        lost: 0,
-        mvpCount: 0,
-      }
-      rowOf[id] = row
-      rows.push(row)
+  const ids = Object.keys(byId)
+  for (let i = 0; i < ids.length; i++) {
+    const id = ids[i]
+    const p = byId[id]
+    const row = {
+      signupId: id,
+      name: p ? p.name : '(已退出)',
+      gender: p ? p.gender : 'U',
+      points: 0,
+      played: 0,
+      won: 0,
+      lost: 0,
+      mvpCount: 0,
+      tournamentCount: 0,
     }
+    rowOf[id] = row
+    rows.push(row)
+  }
+
+  // 记录每个人上过场的赛事，用来算「参加了几场赛事」
+  const tourSeen = {}
+  function noteTournament (signupId, tournamentId) {
+    if (!tournamentId) return
+    const key = signupId + '|' + tournamentId
+    if (tourSeen[key]) return
+    tourSeen[key] = true
+    rowOf[signupId].tournamentCount++
   }
 
   const list = asArray(matches)
@@ -75,10 +80,11 @@ function computeStandings (matches, division, signupsById) {
 
     for (let i = 0; i < winners.length; i++) {
       const row = rowOf[winners[i]]
-      if (!row) continue                 // 不在当前分队名单里的人直接忽略
+      if (!row) continue                 // 不在报名名单里的人直接忽略
       row.points += WIN
       row.played++
       row.won++
+      noteTournament(winners[i], match.tournamentId)
     }
     for (let i = 0; i < losers.length; i++) {
       const row = rowOf[losers[i]]
@@ -86,6 +92,7 @@ function computeStandings (matches, division, signupsById) {
       row.points += LOSS
       row.played++
       row.lost++
+      noteTournament(losers[i], match.tournamentId)
     }
 
     // MVP 由胜方从败方的上场队员里选出，每人额外 +1。
@@ -128,7 +135,7 @@ function computeStandings (matches, division, signupsById) {
   }
 }
 
-/** 队伍维度的战绩，用于比赛列表页的概览。 */
+/** 队伍战绩。只在单场赛事内有意义，所以仍然要传该赛事的分队。 */
 function computeTeamRecords (matches, division) {
   const teams = (division && Array.isArray(division.teams)) ? division.teams : []
   const out = teams.map(function (t) {

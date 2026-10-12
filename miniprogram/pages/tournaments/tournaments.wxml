@@ -1,0 +1,45 @@
+<view class="page">
+  <view wx:if="{{failMessage}}" class="banner banner-error">{{failMessage}}</view>
+  <view wx:if="{{loading}}" class="empty">加载中…</view>
+
+  <block wx:elif="{{!failMessage}}">
+    <view class="card">
+      <view class="card-title">{{eventName}}</view>
+      <view class="card-meta">
+        {{list.length > 0 ? '共 ' + list.length + ' 场赛事' : '还没有赛事'}}
+      </view>
+      <view class="field-hint">每场赛事各自统计到场选手、各自重新随机分队。积分在活动层汇总。</view>
+    </view>
+
+    <view wx:for="{{list}}" wx:key="_id" class="card"
+          data-index="{{index}}" bindtap="openTournament">
+      <view class="row-between">
+        <text class="card-title">{{item.name}}</text>
+        <text class="tag {{item.stateClass}}">{{item.stateText}}</text>
+      </view>
+      <view class="card-meta">{{item.metaText}}</view>
+      <view class="card-meta small">{{item.timeText}}</view>
+
+      <view wx:if="{{isOrganizer}}" class="btn-bar gap">
+        <button class="btn btn-ghost btn-sm" catchtap="editTournament"
+                data-id="{{item._id}}">编辑</button>
+        <button class="btn btn-danger btn-sm" catchtap="removeTournament"
+                data-index="{{index}}">删除</button>
+      </view>
+    </view>
+
+    <view wx:if="{{list.length === 0}}" class="empty">
+      <view class="empty-title">还没有赛事</view>
+      <view class="small">
+        {{isOrganizer ? '新建一场赛事，勾选到场的人就能分队了' : '组织者还没有开赛'}}
+      </view>
+    </view>
+
+    <view class="footer-spacer"></view>
+  </block>
+</view>
+
+<view wx:if="{{!loading && !failMessage}}" class="footer-bar">
+  <button class="btn btn-plain" bindtap="goLeaderboard">积分榜</button>
+  <button wx:if="{{isOrganizer}}" class="btn" bindtap="addTournament">新建赛事</button>
+</view>

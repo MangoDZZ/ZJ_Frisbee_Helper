@@ -11,6 +11,7 @@ Page({
     eventName: '',
     rows: [],
     totals: null,
+    tournamentCount: 0,
     ruleText: '',
   },
 
@@ -43,13 +44,15 @@ Page({
           failMessage: '',
           eventName: d.eventName,
           totals: d.totals,
+          tournamentCount: d.tournamentCount,
           ruleText: '胜 +' + d.rules.win + '　负 +' + d.rules.loss +
             '　当选 MVP 再 +' + d.rules.mvp + '　未上场不计分',
           rows: (d.rows || []).map(function (r) {
             return Object.assign({}, r, {
               genderText: fmt.genderText(r.gender),
               recordText: r.played > 0
-                ? r.played + ' 场 ' + r.won + ' 胜 ' + r.lost + ' 负'
+                ? r.tournamentCount + ' 场赛事 · ' + r.played + ' 战 ' +
+                  r.won + ' 胜 ' + r.lost + ' 负'
                 : '未上场',
               // 前三名给个高亮，其余保持朴素
               rankClass: r.points > 0 && r.rank <= 3 ? 'rank-top rank-' + r.rank : '',
@@ -63,7 +66,7 @@ Page({
       })
   },
 
-  goMatches: function () {
-    wx.navigateTo({ url: '/pages/matches/matches?eventId=' + this.data.eventId })
+  goTournaments: function () {
+    wx.navigateTo({ url: '/pages/tournaments/tournaments?eventId=' + this.data.eventId })
   },
 })

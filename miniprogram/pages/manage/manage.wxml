@@ -98,8 +98,6 @@
 </view>
 
 <view wx:if="{{event && !failMessage && !loading}}" class="footer-bar">
-  <button wx:if="{{event.status === 'divided'}}" class="btn btn-plain" bindtap="viewDivision">查看分队</button>
-  <button class="btn" bindtap="runDivision">
-    {{event.status === 'divided' ? '重新分队' : '开始分队'}}
-  </button>
+  <button class="btn btn-plain" bindtap="viewLeaderboard">积分榜</button>
+  <button class="btn" bindtap="goTournaments">赛事与分队</button>
 </view>

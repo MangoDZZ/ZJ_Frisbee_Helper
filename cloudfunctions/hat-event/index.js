@@ -12,6 +12,8 @@ const cloud = require('wx-server-sdk')
 // DYNAMIC_CURRENT_ENV 跟随当前函数所在环境，避免写死环境 ID 导致测试/生产串环境。
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 
+const roles = require('./lib/roles.js')
+
 const db = cloud.database()
 const _ = db.command
 const events = db.collection('events')
@@ -102,8 +104,9 @@ async function loadEvent (eventId) {
 
 function requireOwner (evt, openid) {
   // openid 由微信在服务端注入，客户端伪造不了，所以这个判断是可信的。
-  if (evt.ownerOpenid !== openid) {
-    return err('FORBIDDEN', '只有活动创建者可以进行此操作')
+  // 管理员拥有组织者的全部权限——计划书里"维护系统运行"的含义。
+  if (!roles.isOrganizer(evt, openid)) {
+    return err('FORBIDDEN', '只有活动创建者或管理员可以进行此操作')
   }
   return null
 }
@@ -115,6 +118,8 @@ const actions = {
 
     const now = Date.now()
     const doc = Object.assign({}, v.value, {
+      // 比赛分类：目前只实现 hat，联赛后续再加
+      type: 'hat',
       ownerOpenid: openid,
       status: 'open',
       signupCount: 0,
@@ -186,7 +191,7 @@ const actions = {
         signupCount: e.signupCount,
         remaining: e.remaining,
         status: e.status,
-        isOwner: e.ownerOpenid === openid,
+        isOwner: roles.isOrganizer(e, openid),
         signed: mySignedIds.indexOf(e._id) >= 0,
       }
     })
@@ -198,7 +203,7 @@ const actions = {
     const e = await loadEvent(d.eventId)
     if (e.error) return e.error
     const evt = e.value
-    const isOwner = evt.ownerOpenid === openid
+    const isOwner = roles.isOrganizer(evt, openid)
 
     const mine = await signups.where({
       eventId: evt._id,
@@ -272,7 +277,7 @@ const actions = {
 
     const id = e.value._id
     // 云数据库单次批量删除有上限，循环删直到删完。
-    const collections = ['signups', 'constraints', 'divisions', 'matches']
+    const collections = ['signups', 'constraints', 'divisions', 'matches', 'tournaments']
     for (let i = 0; i < collections.length; i++) {
       const col = db.collection(collections[i])
       for (;;) {
