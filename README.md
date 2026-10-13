@@ -24,14 +24,36 @@
 
 ### 1. 建数据库集合
 
-云开发控制台 → 数据库，建这 7 个集合（名字一字不差），权限和索引照
-[`数据库安全规则.md`](数据库安全规则.md) 设：
+云开发控制台 → 数据库，建这 7 个集合（名字一字不差）：
 
 ```text
 events  signups  tournaments  divisions  matches  constraints  roles
 ```
 
-**`signups` 上的 `eventId + openid` 联合唯一索引不能省**，否则用户连点提交会重复报名、白占名额。
+**权限**：每个集合 →「权限设置」→ 自定义安全规则。`events` 填 `{"read": true, "write": false}`，
+其余 6 个都填 `{"read": false, "write": false}`（只许云函数读写，原因见
+[`数据库安全规则.md`](数据库安全规则.md)）。
+
+**索引**：选中集合 →「索引管理」→ 新建。联合索引按表中顺序添加字段：
+
+| 集合 | 字段（都选升序，除非注明） | 唯一 | 用途 | 优先级 |
+| --- | --- | --- | --- | --- |
+| `signups` | `eventId` + `openid` | **勾选** | 防止同一人重复报名 | **必须** |
+| `signups` | `eventId` + `status` | | 活动报名名单 | 建议 |
+| `signups` | `openid` + `status` | | 「我的报名」 | 建议 |
+| `signups` | `eventId` + `isTest` | | 清理测试数据 | 可选 |
+| `events` | `startTime`（降序） | | 活动列表排序 | 建议 |
+| `events` | `ownerOpenid` | | 「我创建的活动」 | 建议 |
+| `tournaments` | `eventId` + `createTime` | | 活动下的赛事列表 | 建议 |
+| `divisions` | `tournamentId` + `version` | | 读取最新分队 | 建议 |
+| `divisions` | `eventId` + `published` | | 积分榜判断是否已发布 | 建议 |
+| `matches` | `tournamentId` + `createTime` | | 赛事下的比赛列表 | 建议 |
+| `matches` | `eventId` | | 积分榜按活动汇总 | 建议 |
+| `constraints` | `eventId` | | 分队约束 | 可选 |
+| `roles` | `openid` + `role` | | 判断是否记分员 | 可选 |
+
+**第一行那个唯一索引不能省**，否则用户连点提交会重复报名、白占名额。其余人少时可以先不建，
+但数据积累多了查询会变慢甚至超时。
 
 ### 2. 部署 5 个云函数
 
@@ -335,6 +357,11 @@ cost = 100·人数偏差² + 100·性别偏差² + 100·高分球员偏差² + 1
 200 人规模重启还能改善质量，所以没砍。
 
 ## 常见问题
+
+**看不到「后台管理」或「测试数据」卡片**
+：打开「我的」页看「我的身份」卡片。如果显示「身份查询失败」，按提示处理（通常是 `hat-admin`
+没部署）；如果显示「参与者」，说明那个 openid 不在管理员名单里——复制它，按上文「增删管理员」
+加进 5 份 `roles.js` 并重新部署。
 
 **云函数报 `FailedOperation.UpdateFunctionCode`，提示"处于 CreateFailed 状态"**
 ：第一次创建时云端失败了（多半是云端安装依赖时网络抖动），残骸会挡住之后所有上传。

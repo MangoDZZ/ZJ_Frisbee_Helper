@@ -3,3 +3,21 @@
   color: #8a9099;
   margin: 8rpx 0 16rpx 8rpx;
 }
+
+.openid-row {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  margin-top: 16rpx;
+  padding: 14rpx 18rpx;
+  background: #f4f5f7;
+  border-radius: 10rpx;
+}
+.openid {
+  flex: 1;
+  min-width: 0;
+  font-family: Menlo, Consolas, monospace;
+  font-size: 22rpx;
+  color: #374151;
+  word-break: break-all;
+}

@@ -3,12 +3,26 @@
   <view wx:if="{{loading}}" class="empty">加载中…</view>
 
   <block wx:else>
+    <!-- 身份卡片：openid 是云函数实际认出的值，加管理员时就复制这个 -->
+    <view class="card">
+      <view class="row-between">
+        <text class="card-title">我的身份</text>
+        <text wx:if="{{roleText}}" class="tag {{isAdmin ? 'tag-mine' : isScorer ? 'tag-divided' : ''}}">{{roleText}}</text>
+      </view>
+      <view wx:if="{{roleError}}" class="banner banner-error gap">{{roleError}}</view>
+      <view wx:if="{{myOpenid}}" class="openid-row" bindtap="copyOpenid">
+        <text class="muted small">openid</text>
+        <text class="openid">{{myOpenid}}</text>
+        <text class="muted small">复制</text>
+      </view>
+    </view>
+
     <view wx:if="{{isAdmin}}" class="card" bindtap="goAdmin">
       <view class="row-between">
         <text class="card-title">后台管理</text>
         <text class="muted small">管理记分员 ›</text>
       </view>
-      <view class="card-meta">你是管理员</view>
+      <view class="card-meta">测试数据在各活动的「管理台」里</view>
     </view>
     <view wx:elif="{{isScorer}}" class="card">
       <view class="card-title">记分员</view>

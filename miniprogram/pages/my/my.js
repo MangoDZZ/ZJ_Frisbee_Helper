@@ -10,6 +10,11 @@ Page({
     signups: [],
     owned: [],
     isAdmin: false,
+    isScorer: false,
+    // 身份卡片：显示云函数实际认出的 openid，排查「为什么我不是管理员」时直接对照
+    myOpenid: '',
+    roleText: '',
+    roleError: '',
   },
 
   onShow: function () {
@@ -25,15 +30,20 @@ Page({
     return Promise.all([
       api.signup('mine', {}, { loading: false, toastError: false }),
       api.event('list', { scope: 'mine' }, { loading: false, toastError: false }),
-      // whoami 只用来决定入口显隐，真正的拦截在云函数里
+      // whoami 只用来决定入口显隐，真正的拦截在云函数里。
+      // 失败时要把原因带出来——静默当成普通用户会让「为什么我不是管理员」无从排查。
       api.admin('whoami', {}, { loading: false, toastError: false })
-        .catch(function () { return { isAdmin: false } }),
+        .catch(function (e) { return { failed: true, message: e.message } }),
     ]).then(function (r) {
       that.setData({
         loading: false,
         failMessage: '',
         isAdmin: !!(r[2] && r[2].isAdmin),
         isScorer: !!(r[2] && r[2].isScorer),
+        myOpenid: (r[2] && r[2].openid) || '',
+        roleText: r[2] && r[2].failed ? ''
+          : r[2].isAdmin ? '管理员' : r[2].isScorer ? '记分员' : '参与者',
+        roleError: r[2] && r[2].failed ? '身份查询失败：' + r[2].message : '',
         signups: (r[0].list || []).map(function (s) {
           return {
             _id: s._id,
@@ -72,6 +82,11 @@ Page({
 
   createEvent: function () {
     wx.navigateTo({ url: '/pages/event-edit/event-edit' })
+  },
+
+  copyOpenid: function () {
+    if (!this.data.myOpenid) return
+    wx.setClipboardData({ data: this.data.myOpenid })
   },
 
   goAdmin: function () {
