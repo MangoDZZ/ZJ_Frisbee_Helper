@@ -1059,6 +1059,177 @@ add('端到端：一个活动两场赛事，积分汇总与手算一致', async 
 })
 
 
+// ================================================================ 测试数据
+
+add('只有管理员能生成和清理测试数据', async function () {
+  const id = await createEvent({ capacity: 30 })
+  await expectErr(as(OWNER, hatSignup, 'seedTestSignups', { eventId: id, count: 8 }),
+    'FORBIDDEN', '组织者也不行')
+  await expectErr(as(ALICE, hatSignup, 'seedTestSignups', { eventId: id, count: 8 }),
+    'FORBIDDEN')
+  await expectErr(as(OWNER, hatSignup, 'clearTestSignups', { eventId: id }), 'FORBIDDEN')
+})
+
+add('生成测试数据：占名额、带标记、性别水平合法', async function () {
+  const id = await createEvent({ capacity: 30 })
+  const d = await expectOk(as(ADMIN, hatSignup, 'seedTestSignups', { eventId: id, count: 24 }))
+  eq(d.added, 24)
+
+  const evt = mock.get('events', id)
+  eq(evt.signupCount, 24, '测试数据要计入报名数')
+  eq(evt.remaining, 6, '测试数据要占名额')
+
+  const rows = mock.all('signups')
+  eq(rows.length, 24)
+  rows.forEach(function (s) {
+    eq(s.isTest, true)
+    ok(s.name.indexOf('测试') === 0, '名字要带「测试」前缀：' + s.name)
+    ok(s.gender === 'M' || s.gender === 'F')
+    ok(s.selfLevel >= 1 && s.selfLevel <= 5)
+    ok(s.openid.indexOf('test-') === 0, 'openid 要带 test- 前缀')
+  })
+  // openid 互不重复，否则会撞 (eventId, openid) 唯一索引
+  const openids = rows.map(function (s) { return s.openid })
+  eq(new Set(openids).size, 24, 'openid 不能重复')
+
+  const list = await expectOk(as(OWNER, hatSignup, 'listAll', { eventId: id }))
+  ok(list.list.every(function (s) { return s.isTest === true }), 'listAll 要带上 isTest')
+})
+
+add('连续生成两批，openid 也不重复', async function () {
+  const id = await createEvent({ capacity: 40 })
+  await expectOk(as(ADMIN, hatSignup, 'seedTestSignups', { eventId: id, count: 8 }))
+  // 让两批的时间戳一定不同
+  await new Promise(function (r) { setTimeout(r, 5) })
+  await expectOk(as(ADMIN, hatSignup, 'seedTestSignups', { eventId: id, count: 8 }))
+  const openids = mock.all('signups').map(function (s) { return s.openid })
+  eq(new Set(openids).size, 16)
+})
+
+add('名额不够时拒绝生成，且不扣名额', async function () {
+  const id = await createEvent({ capacity: 10 })
+  await expectErr(as(ADMIN, hatSignup, 'seedTestSignups', { eventId: id, count: 16 }),
+    'EVENT_FULL')
+  eq(mock.get('events', id).remaining, 10, '失败不能扣名额')
+  eq(mock.all('signups').length, 0)
+})
+
+add('生成数量的范围校验', async function () {
+  const id = await createEvent({ capacity: 100 })
+  await expectErr(as(ADMIN, hatSignup, 'seedTestSignups', { eventId: id, count: 0 }),
+    'INVALID_INPUT')
+  await expectErr(as(ADMIN, hatSignup, 'seedTestSignups', { eventId: id, count: 61 }),
+    'INVALID_INPUT')
+  await expectErr(as(ADMIN, hatSignup, 'seedTestSignups', { eventId: id, count: null }),
+    'INVALID_INPUT', 'null 不能当 0 也不能放行')
+})
+
+add('清理测试数据：只删测试的，归还名额，真实报名不受影响', async function () {
+  const id = await createEvent({ capacity: 30 })
+  await expectOk(as(ALICE, hatSignup, 'submit', Object.assign({ eventId: id }, signupForm())))
+  await expectOk(as(ADMIN, hatSignup, 'seedTestSignups', { eventId: id, count: 16 }))
+  eq(mock.get('events', id).remaining, 13)
+
+  const d = await expectOk(as(ADMIN, hatSignup, 'clearTestSignups', { eventId: id }))
+  eq(d.removed, 16)
+
+  const rows = mock.all('signups')
+  eq(rows.length, 1, '只剩真实报名')
+  eq(rows[0].openid, ALICE)
+  const evt = mock.get('events', id)
+  eq(evt.remaining, 29, '名额要归还')
+  eq(evt.signupCount, 1)
+})
+
+add('测试选手已进赛事时拒绝清理，删掉赛事后才能清', async function () {
+  const id = await createEvent({ capacity: 30 })
+  await expectOk(as(ADMIN, hatSignup, 'seedTestSignups', { eventId: id, count: 8 }))
+  const ids = mock.all('signups').map(function (s) { return s._id })
+
+  const t = await expectOk(as(OWNER, hatTeam, 'createTournament', {
+    eventId: id, name: '试分队', teamCount: 2, attendeeIds: ids,
+  }))
+
+  const e = await expectErr(as(ADMIN, hatSignup, 'clearTestSignups', { eventId: id }),
+    'TEST_DATA_IN_USE')
+  ok(e.message.indexOf('试分队') >= 0, '要说清是哪场赛事：' + e.message)
+  eq(mock.all('signups').length, 8, '被拒时一条都不能删')
+  eq(mock.get('events', id).remaining, 22, '被拒时名额不变')
+
+  await expectOk(as(OWNER, hatTeam, 'removeTournament', { tournamentId: t._id }))
+  const d = await expectOk(as(ADMIN, hatSignup, 'clearTestSignups', { eventId: id }))
+  eq(d.removed, 8)
+  eq(mock.get('events', id).remaining, 30)
+})
+
+add('清理时约束里的测试选手被摘掉，不足 2 人的整条删除', async function () {
+  const id = await createEvent({ capacity: 30 })
+  await expectOk(as(ALICE, hatSignup, 'submit', Object.assign({ eventId: id }, signupForm())))
+  await expectOk(as(BOB, hatSignup, 'submit', Object.assign({ eventId: id }, signupForm())))
+  await expectOk(as(ADMIN, hatSignup, 'seedTestSignups', { eventId: id, count: 4 }))
+  const rows = mock.all('signups')
+  const real = rows.filter(function (s) { return !s.isTest }).map(function (s) { return s._id })
+  const fake = rows.filter(function (s) { return s.isTest }).map(function (s) { return s._id })
+
+  await expectOk(as(OWNER, hatTeam, 'setConstraints', {
+    eventId: id,
+    constraints: [
+      { type: 'together', signupIds: [real[0], fake[0]] },           // 摘掉后剩 1 人 → 删
+      { type: 'apart', signupIds: [real[0], real[1], fake[1]] },     // 摘掉后剩 2 人 → 保留
+      { type: 'apart', signupIds: [real[0], real[1]] },              // 不涉及 → 不动
+    ],
+  }))
+
+  await expectOk(as(ADMIN, hatSignup, 'clearTestSignups', { eventId: id }))
+  const cons = mock.all('constraints')
+  eq(cons.length, 2, '剩不足 2 人的那条应被删掉')
+  cons.forEach(function (c) {
+    ok(c.signupIds.every(function (sid) { return fake.indexOf(sid) < 0 }),
+      '约束里不应再有测试选手')
+    eq(c.signupIds.length, 2)
+  })
+})
+
+add('没有测试数据时清理是空操作', async function () {
+  const id = await createEvent()
+  const d = await expectOk(as(ADMIN, hatSignup, 'clearTestSignups', { eventId: id }))
+  eq(d.removed, 0)
+})
+
+add('后台用户列表不显示测试账号', async function () {
+  const id = await createEvent({ capacity: 30 })
+  await expectOk(as(ALICE, hatSignup, 'submit', Object.assign({ eventId: id }, signupForm())))
+  await expectOk(as(ADMIN, hatSignup, 'seedTestSignups', { eventId: id, count: 10 }))
+
+  const users = await expectOk(as(ADMIN, hatAdmin, 'listUsers', {}))
+  eq(users.list.length, 1, '只有真人')
+  eq(users.list[0].openid, ALICE)
+})
+
+add('端到端：用测试数据完成一次分队', async function () {
+  const id = await createEvent({ capacity: 24, teamCount: 4 })
+  await expectOk(as(ADMIN, hatSignup, 'seedTestSignups', { eventId: id, count: 24 }))
+  const roster = (await expectOk(as(OWNER, hatSignup, 'listAll', { eventId: id }))).list
+
+  const t = await expectOk(as(OWNER, hatTeam, 'createTournament', {
+    eventId: id, name: '第 1 场', teamCount: 4,
+    attendeeIds: roster.map(function (s) { return s._id }),
+  }))
+
+  const divider = require('../miniprogram/utils/divide.js')
+  const res = divider.divide(roster.map(function (s) {
+    return { id: s._id, name: s.name, gender: s.gender, level: s.level }
+  }), 4, [], 1)
+  ok(res.ok)
+  eq(res.stats.sizeSpread, 0, '24 人分 4 队应当每队 6 人')
+  ok(res.stats.femaleSpread <= 1)
+
+  await expectOk(as(OWNER, hatTeam, 'saveDivision', {
+    tournamentId: t._id,
+    teams: res.teams.map(function (x) { return { name: x.name, memberIds: x.memberIds } }),
+  }), '测试数据的分队结果应能通过云端校验')
+})
+
 // ---------------------------------------------------------------- 运行
 
 ;(async function run () {

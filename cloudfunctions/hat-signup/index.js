@@ -20,6 +20,54 @@ const signups = db.collection('signups')
 const MIN_LEVEL = 1
 const MAX_LEVEL = 5
 
+// ---------------------------------------------------------------- 测试数据
+
+const MAX_TEST_SEED = 60
+
+const TEST_SURNAMES = '王李张刘陈杨赵黄周吴徐孙胡朱高林何郭马罗'
+const TEST_GIVEN = ['伟', '芳', '娜', '敏', '静', '磊', '洋', '勇', '艳', '杰',
+  '涛', '明', '超', '霞', '平', '刚', '桂', '丹', '萍', '鑫']
+
+// 水平分布：以 3 为中心，两头少——接近真实俱乐部，均衡效果才测得出来。
+const TEST_LEVEL_WEIGHTS = [0.1, 0.2, 0.35, 0.25, 0.1]
+const TEST_FEMALE_RATIO = 0.4
+
+function pickWeighted (weights) {
+  let r = Math.random()
+  for (let i = 0; i < weights.length; i++) {
+    r -= weights[i]
+    if (r < 0) return i
+  }
+  return weights.length - 1
+}
+
+/**
+ * 生成一个假报名。openid 带 test- 前缀且全局唯一，不会撞上 signups 的
+ * (eventId, openid) 唯一索引，也不会和任何真实微信用户重合。
+ */
+function makeTestSignup (eventId, batch, i) {
+  const gender = Math.random() < TEST_FEMALE_RATIO ? 'F' : 'M'
+  const level = pickWeighted(TEST_LEVEL_WEIGHTS) + 1
+  const name = '测试' +
+    TEST_SURNAMES[Math.floor(Math.random() * TEST_SURNAMES.length)] +
+    TEST_GIVEN[Math.floor(Math.random() * TEST_GIVEN.length)] + (i + 1)
+  const now = Date.now()
+  return {
+    eventId: eventId,
+    openid: 'test-' + batch + '-' + i,
+    name: name,
+    gender: gender,
+    selfLevel: level,
+    adminLevel: null,
+    phone: '',
+    remark: '测试数据',
+    status: 'signed',
+    isTest: true,
+    createTime: now + i,      // 错开 1ms，名单顺序稳定
+    updateTime: now,
+  }
+}
+
 function ok (data) { return { ok: true, data: data === undefined ? null : data } }
 function err (code, message, detail) {
   return { ok: false, error: { code: code, message: message, detail: detail || null } }
@@ -256,6 +304,7 @@ const actions = {
         level: s.adminLevel == null ? s.selfLevel : s.adminLevel,
         phone: s.phone || '',
         remark: s.remark || '',
+        isTest: s.isTest === true,
         createTime: s.createTime,
       }
     })
@@ -294,6 +343,121 @@ const actions = {
       adminLevel: adminLevel,
       level: adminLevel == null ? target.data.selfLevel : adminLevel,
     })
+  },
+
+  /**
+   * 往活动里塞一批假报名，用于人不够时测试分队。仅管理员可用。
+   *
+   * 假报名照常占名额：防超额靠的是 remaining 计数，测试数据若绕过它，
+   * signupCount / remaining 就和真实记录对不上了。
+   */
+  async seedTestSignups (d, openid) {
+    if (!roles.isAdmin(openid)) return err('FORBIDDEN', '只有管理员可以生成测试数据')
+
+    const e = await loadEvent(d.eventId)
+    if (e.error) return e.error
+    const evt = e.value
+
+    const count = asInt(d.count)
+    if (count === null || count < 1 || count > MAX_TEST_SEED) {
+      return err('INVALID_INPUT', '一次生成 1 到 ' + MAX_TEST_SEED + ' 人')
+    }
+
+    // 和真实报名同样的原子占位：一条 update 同时完成检查和扣减。
+    const claim = await events.where({
+      _id: evt._id,
+      remaining: _.gte(count),
+    }).update({
+      data: { remaining: _.inc(-count), signupCount: _.inc(count) },
+    })
+    if (!claim.stats || claim.stats.updated !== 1) {
+      return err('EVENT_FULL',
+        '名额只剩 ' + evt.remaining + ' 个，不够生成 ' + count + ' 人。' +
+        '可以先在「编辑活动」里调大人数上限。',
+        { remaining: evt.remaining })
+    }
+
+    const batch = Date.now().toString(36)
+    let added = 0
+    try {
+      for (let i = 0; i < count; i++) {
+        await signups.add({ data: makeTestSignup(evt._id, batch, i) })
+        added++
+      }
+    } finally {
+      // 中途失败时把没写成的名额补回去，否则名额会凭空消失。
+      if (added < count) {
+        await events.doc(evt._id).update({
+          data: { remaining: _.inc(count - added), signupCount: _.inc(added - count) },
+        }).catch(function (e2) {
+          console.error('[hat-signup] 测试数据名额补偿失败 eventId=' + evt._id, e2)
+        })
+      }
+    }
+
+    return ok({ added: added })
+  },
+
+  /**
+   * 清掉活动里的全部测试报名，并归还名额。仅管理员可用。
+   *
+   * 测试选手如果已经进了某场赛事，直接删会让分队和比赛记录里留下指向不存在的人的引用，
+   * 所以这种情况拒绝执行，提示先删掉那场赛事（删赛事会级联清掉它的分队和比赛）。
+   */
+  async clearTestSignups (d, openid) {
+    if (!roles.isAdmin(openid)) return err('FORBIDDEN', '只有管理员可以清理测试数据')
+
+    const e = await loadEvent(d.eventId)
+    if (e.error) return e.error
+    const evt = e.value
+
+    const testIds = []
+    for (let skip = 0; skip < 1000; skip += 100) {
+      const page = await signups.where({ eventId: evt._id, isTest: true })
+        .field({ _id: true }).skip(skip).limit(100).get()
+      const rows = page.data || []
+      for (let i = 0; i < rows.length; i++) testIds.push(rows[i]._id)
+      if (rows.length < 100) break
+    }
+    if (testIds.length === 0) return ok({ removed: 0 })
+
+    const tours = await db.collection('tournaments').where({ eventId: evt._id })
+      .limit(100).get()
+    const blocking = (tours.data || []).filter(function (t) {
+      return (t.attendeeIds || []).some(function (id) { return testIds.indexOf(id) >= 0 })
+    })
+    if (blocking.length > 0) {
+      return err('TEST_DATA_IN_USE',
+        '测试选手已经在「' + blocking.map(function (t) { return t.name }).join('」「') +
+        '」里了。请先删掉这些赛事，再清理测试数据。',
+        { tournamentIds: blocking.map(function (t) { return t._id }) })
+    }
+
+    // 约束里引用了测试选手的，把测试选手摘掉；剩不足 2 人的整条删掉。
+    const consCol = db.collection('constraints')
+    const cons = await consCol.where({ eventId: evt._id }).limit(200).get()
+    for (let i = 0; i < (cons.data || []).length; i++) {
+      const c = cons.data[i]
+      const kept = (c.signupIds || []).filter(function (id) { return testIds.indexOf(id) < 0 })
+      if (kept.length === (c.signupIds || []).length) continue
+      if (kept.length < 2) await consCol.doc(c._id).remove()
+      else await consCol.doc(c._id).update({ data: { signupIds: kept } })
+    }
+
+    // 先删明细再归还名额，顺序反了会在并发下把名额加多。
+    let removed = 0
+    for (;;) {
+      const r = await signups.where({ eventId: evt._id, isTest: true }).limit(100).remove()
+      const n = (r.stats && r.stats.removed) || 0
+      removed += n
+      if (n < 100) break
+    }
+    if (removed > 0) {
+      await events.doc(evt._id).update({
+        data: { remaining: _.inc(removed), signupCount: _.inc(-removed) },
+      })
+    }
+    return ok({ removed: removed })
   },
 }
 

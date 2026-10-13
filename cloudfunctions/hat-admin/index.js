@@ -61,6 +61,8 @@ const actions = {
     const order = []
     for (let i = 0; i < all.length; i++) {
       const s = all[i]
+      // 测试数据不是真人，不能被设成记分员
+      if (s.isTest) continue
       if (!s.openid || byOpenid[s.openid]) continue
       byOpenid[s.openid] = {
         openid: s.openid,

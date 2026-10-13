@@ -29,6 +29,26 @@
       </view>
     </view>
 
+    <!-- 测试数据：人不够时用来试分队，仅管理员可见 -->
+    <view wx:if="{{isAdmin}}" class="card test-card">
+      <view class="row-between">
+        <text class="card-title">测试数据</text>
+        <text class="tag">仅管理员可见</text>
+      </view>
+      <view class="field-hint">
+        人不够时一键加一批假报名（随机性别与水平），用来试分队、录比赛和积分榜。会占用名额。
+      </view>
+      <view class="btn-bar gap">
+        <button wx:for="{{seedOptions}}" wx:key="*this" class="btn btn-plain btn-sm"
+                data-count="{{item}}" bindtap="seedTest">+ {{item}} 人</button>
+      </view>
+      <view wx:if="{{testCount > 0}}" class="btn-bar gap">
+        <button class="btn btn-danger btn-sm" bindtap="clearTest">
+          清理 {{testCount}} 个测试报名
+        </button>
+      </view>
+    </view>
+
     <!-- 分队约束 -->
     <view class="card">
       <view class="card-title">分队约束</view>
@@ -82,6 +102,7 @@
           <view>
             <text class="strong">{{item.name}}</text>
             <text class="muted small">　{{item.genderText}}</text>
+            <text wx:if="{{item.isTest}}" class="tag tag-test">测试</text>
           </view>
           <view wx:if="{{item.remark}}" class="muted small">{{item.remark}}</view>
           <view wx:if="{{item.phone}}" class="muted small">{{item.phone}}</view>

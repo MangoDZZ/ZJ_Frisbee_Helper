@@ -22,6 +22,10 @@ Page({
     pickTypeText: '',
     pickedIds: [],
     pickedNames: '',
+    // 测试数据（仅管理员）
+    isAdmin: false,
+    testCount: 0,
+    seedOptions: [8, 16, 24],
   },
 
   onLoad: function (q) {
@@ -49,9 +53,12 @@ Page({
         return Promise.all([
           api.signup('listAll', { eventId: that.data.eventId }, { loading: false }),
           api.team('listConstraints', { eventId: that.data.eventId }, { loading: false }),
+          // 只用来决定测试数据卡片显不显示，真正的拦截在云函数里
+          api.admin('whoami', {}, { loading: false, toastError: false })
+            .catch(function () { return { isAdmin: false } }),
         ]).then(function (r) {
           that.applyData(r[0].list || [], r[1].list || [])
-          that.setData({ loading: false, failMessage: '' })
+          that.setData({ loading: false, failMessage: '', isAdmin: !!r[2].isAdmin })
         })
       })
       .catch(function (e) {
@@ -70,6 +77,7 @@ Page({
         overridden: s.adminLevel != null,
       })
     })
+    const testCount = decorated.filter(function (s) { return s.isTest }).length
 
     let male = 0; let female = 0
     const buckets = [0, 0, 0, 0, 0]
@@ -95,7 +103,9 @@ Page({
           names: c.signupIds.map(function (id) { return nameById[id] || '(已退出)' }).join('、'),
         }
       }),
-      summary: decorated.length + ' 人报名 · ' + male + ' 男 ' + female + ' 女',
+      summary: decorated.length + ' 人报名 · ' + male + ' 男 ' + female + ' 女' +
+        (testCount > 0 ? '（含 ' + testCount + ' 个测试）' : ''),
+      testCount: testCount,
       levelBars: levelBars,
     })
   },
@@ -206,6 +216,55 @@ Page({
 
   editEvent: function () {
     wx.navigateTo({ url: '/pages/event-edit/event-edit?eventId=' + this.data.eventId })
+  },
+
+  // ---------------- 测试数据（仅管理员） ----------------
+
+  seedTest: function (e) {
+    const count = Number(e.currentTarget.dataset.count)
+    const that = this
+    wx.showModal({
+      title: '生成测试数据',
+      content: '往这个活动里加 ' + count + ' 个假报名（名字带「测试」，随机性别和水平），' +
+        '会占用名额。测完记得清掉。',
+      confirmText: '生成',
+      success: function (r) {
+        if (!r.confirm) return
+        api.signup('seedTestSignups', {
+          eventId: that.data.eventId,
+          count: count,
+        }, { loading: '生成中' })
+          .then(function (d) {
+            wx.showToast({ title: '已加 ' + d.added + ' 人', icon: 'success' })
+            return that.load()
+          })
+          .catch(function () {})
+      },
+    })
+  },
+
+  clearTest: function () {
+    const that = this
+    wx.showModal({
+      title: '清理测试数据',
+      content: '删掉这个活动里全部 ' + this.data.testCount + ' 个测试报名，并归还名额。' +
+        '约束里涉及测试选手的部分也会一起清掉。',
+      confirmText: '清理',
+      confirmColor: '#b4322c',
+      success: function (r) {
+        if (!r.confirm) return
+        // 测试选手已进赛事时云函数会拒绝，报错弹窗比 toast 更容易看清该删哪场
+        api.signup('clearTestSignups', { eventId: that.data.eventId },
+          { loading: '清理中', toastError: false })
+          .then(function (d) {
+            wx.showToast({ title: '已清理 ' + d.removed + ' 人', icon: 'success' })
+            return that.load()
+          })
+          .catch(function (err) {
+            wx.showModal({ title: '没能清理', content: err.message, showCancel: false })
+          })
+      },
+    })
   },
 
   goTournaments: function () {

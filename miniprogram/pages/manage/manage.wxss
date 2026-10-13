@@ -110,3 +110,14 @@
   color: var(--theme);
   font-weight: 600;
 }
+
+/* 测试数据卡片用虚线框，和正式功能区分开 */
+.test-card {
+  border: 2rpx dashed #d7dbe0;
+  box-shadow: none;
+}
+.tag-test {
+  background: #fdf0dd;
+  color: #96631a;
+  margin-left: 10rpx;
+}
