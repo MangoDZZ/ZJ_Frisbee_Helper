@@ -17,14 +17,14 @@
   ],
   "window": {
     "backgroundTextStyle": "light",
-    "navigationBarBackgroundColor": "#1f6f4a",
+    "navigationBarBackgroundColor": "#AC23FF",
     "navigationBarTitleText": "飞盘 HAT 助手",
     "navigationBarTextStyle": "white",
     "backgroundColor": "#f4f5f7"
   },
   "tabBar": {
     "color": "#8a9099",
-    "selectedColor": "#1f6f4a",
+    "selectedColor": "#AC23FF",
     "backgroundColor": "#ffffff",
     "borderStyle": "white",
     "list": [

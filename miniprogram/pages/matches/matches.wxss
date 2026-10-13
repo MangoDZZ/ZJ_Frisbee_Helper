@@ -34,7 +34,7 @@
   text-align: center;
 }
 .side-win {
-  color: #1f6f4a;
+  color: var(--theme);
   font-weight: 600;
 }
 .side-lose { color: #8a9099; }

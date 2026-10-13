@@ -11,7 +11,7 @@
   font-size: 27rpx;
 }
 .scope-on {
-  background: #1f6f4a;
+  background: var(--theme);
   color: #fff;
 }
 
@@ -25,10 +25,10 @@
   width: 108rpx;
   height: 108rpx;
   border-radius: 50%;
-  background: #1f6f4a;
+  background: var(--theme);
   color: #fff;
   font-size: 56rpx;
   line-height: 104rpx;
   text-align: center;
-  box-shadow: 0 6rpx 20rpx rgba(31, 111, 74, 0.35);
+  box-shadow: 0 6rpx 20rpx var(--theme-shadow);
 }

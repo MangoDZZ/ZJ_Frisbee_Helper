@@ -1,5 +1,5 @@
 .team-card {
-  border-left: 8rpx solid #1f6f4a;
+  border-left: 8rpx solid var(--theme);
 }
 
 .members {

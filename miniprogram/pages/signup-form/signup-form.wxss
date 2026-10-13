@@ -15,15 +15,15 @@
   border: 2rpx solid transparent;
 }
 .level-on {
-  background: #eef7f1;
-  border-color: #1f6f4a;
+  background: var(--theme-soft);
+  border-color: var(--theme);
 }
 .level-main {
   display: flex;
   flex-direction: column;
 }
 .level-check {
-  color: #1f6f4a;
+  color: var(--theme);
   font-size: 34rpx;
   font-weight: 600;
 }

@@ -1,4 +1,16 @@
+/*
+ * 主题色。改主题只需改这里——但 app.json 的导航栏和底部标签栏颜色不支持变量，
+ * 那两处要同步手改。
+ *
+ * --theme-ink 是给「浅底上的小字」用的深一档紫：主色写在浅紫底上对比度只有 3.88，
+ * 小字看不清，深一档到 5.52。
+ */
 page {
+  --theme: #AC23FF;
+  --theme-ink: #8a10d6;
+  --theme-soft: #f3e3ff;
+  --theme-shadow: rgba(172, 35, 255, 0.35);
+
   background: #f4f5f7;
   color: #1a1d20;
   font-size: 28rpx;
@@ -59,11 +71,11 @@ page {
   color: #4b5563;
   margin-right: 10rpx;
 }
-.tag-open { background: #e3f5ea; color: #1f6f4a; }
+.tag-open { background: var(--theme-soft); color: var(--theme-ink); }
 .tag-closed { background: #f1f2f4; color: #6b7280; }
 .tag-divided { background: #e6effb; color: #2563a8; }
 .tag-draft { background: #fdf0dd; color: #96631a; }
-.tag-mine { background: #1f6f4a; color: #fff; }
+.tag-mine { background: var(--theme); color: #fff; }
 .tag-full { background: #fdeaea; color: #b4322c; }
 
 /* ---------- 按钮 ---------- */
@@ -72,15 +84,15 @@ page {
   border-radius: 12rpx;
   font-size: 30rpx;
   line-height: 2.6;
-  background: #1f6f4a;
+  background: var(--theme);
   color: #fff;
   text-align: center;
 }
 .btn::after { border: none; }
 .btn-plain {
   background: #fff;
-  color: #1f6f4a;
-  border: 2rpx solid #1f6f4a;
+  color: var(--theme);
+  border: 2rpx solid var(--theme);
 }
 .btn-ghost {
   background: #eef2f5;
@@ -151,7 +163,7 @@ page {
   font-size: 28rpx;
 }
 .option-on {
-  background: #1f6f4a;
+  background: var(--theme);
   color: #fff;
 }
 
