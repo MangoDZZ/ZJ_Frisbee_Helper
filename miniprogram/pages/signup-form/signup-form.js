@@ -4,11 +4,11 @@ const api = require('../../utils/api.js')
 const fmt = require('../../utils/format.js')
 
 const LEVEL_OPTIONS = [
-  { value: 1, label: '新手', desc: '刚接触，规则还在熟悉' },
-  { value: 2, label: '入门', desc: '打过几次，能参与对抗' },
-  { value: 3, label: '一般', desc: '常打，基本传接稳定' },
-  { value: 4, label: '熟练', desc: '能带节奏，战术意识好' },
-  { value: 5, label: '高手', desc: '队里的核心' },
+  { value: 1, label: 'L1', desc: '没有出接盘能力，没有打过比赛' },
+  { value: 2, label: 'L2', desc: '有基本的出接盘能力，听说过但没有打过战术' },
+  { value: 3, label: 'L3', desc: '有熟练的出接盘能力，了解并打过一些战术' },
+  { value: 4, label: 'L4', desc: '有成熟的出接盘能力，熟悉且可直接执行战术' },
+  { value: 5, label: 'L5', desc: '有精湛的出接盘能力，战术执行成熟且比赛经验丰富' },
 ]
 
 Page({

@@ -30,10 +30,11 @@
 
   <view wx:else class="empty">
     <view class="empty-title">{{scope === 'mine' ? '你还没有创建活动' : '还没有活动'}}</view>
-    <view class="small">点右下角的按钮创建一场 HAT 赛</view>
+    <view wx:if="{{canCreateEvent}}" class="small">点右下角的按钮创建一场 HAT 赛</view>
+    <view wx:else class="small">等组织者发布活动吧</view>
   </view>
 
   <view class="footer-spacer"></view>
 </view>
 
-<view class="fab" bindtap="createEvent">＋</view>
+<view wx:if="{{canCreateEvent}}" class="fab" bindtap="createEvent">＋</view>

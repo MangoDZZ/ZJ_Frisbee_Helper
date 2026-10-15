@@ -4,17 +4,17 @@
 
   <block wx:elif="{{!failMessage}}">
     <view class="card">
-      <view class="card-title">记分员管理</view>
+      <view class="card-title">组织者</view>
       <view class="field-hint">
-        记分员可以为所有活动录入比赛战绩，但不能创建赛事、分队或调整水平。
-        名单来自报过名的人，点一行即可切换。
+        组织者可以发起活动，并管理所有活动的报名、赛前检录、分队、战绩和积分。
+        管理员可以增删组织者、移交管理员身份；组织者只能查看名单。
       </view>
-      <view class="card-meta gap">当前 {{scorerCount}} 名记分员</view>
+      <view class="card-meta gap">当前 {{organizerCount}} 名组织者</view>
     </view>
 
     <view class="card">
       <view wx:for="{{list}}" wx:key="openid" class="user-row"
-            data-index="{{index}}" bindtap="toggleScorer">
+            data-index="{{index}}" bindtap="tapUser">
         <view class="user-main">
           <view>
             <text class="strong">{{item.name}}</text>
@@ -23,9 +23,7 @@
           </view>
           <view class="muted small">{{item.metaText}}</view>
         </view>
-        <view class="user-toggle {{item.isScorer ? 'toggle-on' : ''}}">
-          {{item.isAdmin ? '—' : (item.isScorer ? '取消' : '设为记分员')}}
-        </view>
+        <view class="user-toggle">{{canEditRoles && !item.isAdmin ? '管理' : '查看'}}</view>
       </view>
 
       <view wx:if="{{list.length === 0}}" class="muted small">
@@ -33,11 +31,21 @@
       </view>
     </view>
 
+    <!-- 管理员只有一个，存在 roles 集合里；移交是真正的转移 -->
     <view class="card">
-      <view class="card-title">管理员</view>
-      <view class="field-hint">
-        管理员写死在云函数的 lib/roles.js 里，改名单要同时改全部 5 个云函数的副本
-        并重新部署。这样做是因为权限必须在服务端判定——前端配置改一行就能冒充身份。
+      <view class="row-between">
+        <text class="card-title">管理员</text>
+        <text class="muted small">{{adminOpenid === myOpenid ? '你' : '当前'}}</text>
+      </view>
+      <view wx:if="{{adminOpenid}}" class="openid-row" bindtap="copyAdminOpenid">
+        <text class="muted small">openid</text>
+        <text class="openid">{{adminOpenid}}</text>
+        <text class="muted small">复制</text>
+      </view>
+      <view class="field-hint gap">
+        同一时间只有一个管理员。在上面的人里点「移交管理员身份给他」，权限会转移过去，
+        原来的人立刻失效。云函数里写死的初始管理员名单只在数据库里完全没有管理员时才生效，
+        所以移交之后它就自动让位了。
       </view>
     </view>
 

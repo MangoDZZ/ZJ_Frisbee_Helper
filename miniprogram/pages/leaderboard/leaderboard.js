@@ -12,7 +12,7 @@ Page({
     rows: [],
     totals: null,
     tournamentCount: 0,
-    ruleText: '',
+    ruleGroups: [],
   },
 
   onLoad: function (q) {
@@ -43,16 +43,16 @@ Page({
           loading: false,
           failMessage: '',
           eventName: d.eventName,
-          totals: d.totals,
-          tournamentCount: d.tournamentCount,
-          ruleText: '胜 +' + d.rules.win + '　负 +' + d.rules.loss +
-            '　当选 MVP 再 +' + d.rules.mvp + '　未上场不计分',
+          totals: d.totals || { matchCount: 0, playedCount: 0, playerCount: 0 },
+          tournamentCount: d.tournamentCount || 0,
+          ruleGroups: ruleGroupsOf(d.rules),
           rows: (d.rows || []).map(function (r) {
             return Object.assign({}, r, {
               genderText: fmt.genderText(r.gender),
-              recordText: r.played > 0
+              recordText: r.played > 0 || r.forfeitCount > 0
                 ? r.tournamentCount + ' 场赛事 · ' + r.played + ' 战 ' +
-                  r.won + ' 胜 ' + r.lost + ' 负'
+                  r.won + ' 胜 ' + r.lost + ' 负' +
+                  (r.forfeitCount > 0 ? ' · 弃赛 ' + r.forfeitCount + ' 次' : '')
                 : '未上场',
               // 前三名给个高亮，其余保持朴素
               rankClass: r.points > 0 && r.rank <= 3 ? 'rank-top rank-' + r.rank : '',
@@ -70,3 +70,33 @@ Page({
     wx.navigateTo({ url: '/pages/tournaments/tournaments?eventId=' + this.data.eventId })
   },
 })
+
+/**
+ * 计分规则的兜底默认值，与云函数 lib/score.js 保持一致。
+ *
+ * 必须有一份兜底：改前端要审核、改云函数立即生效，线上必然存在"新前端 + 旧云函数"的
+ * 组合。旧云函数不回 forfeit / forfeitReset 时，直接拼字符串会显示成
+ * 「弃赛 undefined」，所以这里逐个字段校验，缺了就用默认值。
+ */
+const RULE_FALLBACK = { win: 3, loss: 1, mvp: 1, forfeit: -3, forfeitReset: 2 }
+
+function ruleValue (raw, key) {
+  const n = Number(raw && raw[key])
+  return isFinite(n) ? n : RULE_FALLBACK[key]
+}
+
+/** 把规则拆成分级条目（胜负 / MVP / 弃赛），一条一行。 */
+function ruleGroupsOf (raw) {
+  const r = {
+    win: ruleValue(raw, 'win'),
+    loss: ruleValue(raw, 'loss'),
+    mvp: ruleValue(raw, 'mvp'),
+    forfeit: ruleValue(raw, 'forfeit'),
+    forfeitReset: ruleValue(raw, 'forfeitReset'),
+  }
+  return [
+    { label: '胜负', text: '胜 +' + r.win + '　负 +' + r.loss },
+    { label: 'MVP', text: '每获选一次 +' + r.mvp },
+    { label: '弃赛', text: r.forfeit + ' 分，累计 ' + r.forfeitReset + ' 次积分归零' },
+  ]
+}

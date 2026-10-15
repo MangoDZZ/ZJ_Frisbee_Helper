@@ -9,7 +9,12 @@
         {{tournamentCount}} 场赛事 · 已记录 {{totals.matchCount}} 场比赛 ·
         {{totals.playedCount}}/{{totals.playerCount}} 人上过场
       </view>
-      <view class="rule-line">{{ruleText}}</view>
+      <view class="rule-block">
+        <view wx:for="{{ruleGroups}}" wx:key="label" class="rule-item">
+          <text class="rule-label">{{item.label}}</text>
+          <text>{{item.text}}</text>
+        </view>
+      </view>
       <view class="field-hint">本榜汇总了这个活动下全部赛事的积分。</view>
     </view>
 

@@ -107,6 +107,9 @@ function decorate (m, i) {
     mvpText: m.mvps.length > 0
       ? m.mvps.map(function (p) { return p.name }).join('、')
       : '',
+    forfeitText: (m.forfeits || []).length > 0
+      ? m.forfeits.map(function (p) { return p.name }).join('、')
+      : '',
     timeText: fmt.formatDateTime(m.createTime),
   })
 }

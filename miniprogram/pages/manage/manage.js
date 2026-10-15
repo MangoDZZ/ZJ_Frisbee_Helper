@@ -3,7 +3,7 @@
 const api = require('../../utils/api.js')
 const fmt = require('../../utils/format.js')
 
-const LEVEL_SHEET = ['1 新手', '2 入门', '3 一般', '4 熟练', '5 高手', '恢复为自评水平']
+const LEVEL_SHEET = ['L1', 'L2', 'L3', 'L4', 'L5', '恢复为自评水平']
 
 Page({
   data: {
@@ -26,6 +26,7 @@ Page({
     isAdmin: false,
     testCount: 0,
     seedOptions: [8, 16, 24],
+    importing: false,
   },
 
   onLoad: function (q) {
@@ -263,6 +264,63 @@ Page({
           .catch(function (err) {
             wx.showModal({ title: '没能清理', content: err.message, showCancel: false })
           })
+      },
+    })
+  },
+
+  // ---------------- 导入名单 ----------------
+
+  importRoster: function () {
+    const that = this
+    wx.chooseMessageFile({
+      count: 1,
+      type: 'file',
+      extension: ['.xlsx', '.xls'],
+      success: function (pick) {
+        const file = pick.tempFiles && pick.tempFiles[0]
+        if (!file || !file.path) return
+        const name = file.name || ''
+        if (!/\.(xlsx|xls)$/i.test(name)) {
+          wx.showModal({ title: '文件格式不对', content: '请选择 .xlsx 或 .xls 文件', showCancel: false })
+          return
+        }
+        wx.showModal({
+          title: '导入名单',
+          content: '将把表格中的姓名、性别、能力追加到当前活动，并占用名额。已导入的名单不会关联微信账号，确认继续？',
+          confirmText: '导入',
+          success: function (r) {
+            if (!r.confirm) return
+            that.setData({ importing: true })
+            const cloudPath = 'imports/' + that.data.eventId + '/' + Date.now() + '-' + name.replace(/[^A-Za-z0-9._-]/g, '_')
+            let fileID = ''
+            let cleaned = false
+            function cleanup () {
+              if (!fileID || cleaned || !wx.cloud.deleteFile) return Promise.resolve()
+              cleaned = true
+              return wx.cloud.deleteFile({ fileList: [fileID] }).catch(function () {})
+            }
+            wx.cloud.uploadFile({ cloudPath: cloudPath, filePath: file.path })
+              .then(function (uploaded) {
+                fileID = uploaded.fileID
+                return api.signup('importSignups', {
+                  eventId: that.data.eventId,
+                  fileID: fileID,
+                }, { loading: '导入中', toastError: false })
+              })
+              .then(function (d) {
+                return cleanup().then(function () {
+                  wx.showToast({ title: '已导入 ' + d.imported + ' 人', icon: 'success' })
+                  return that.load()
+                })
+              })
+              .catch(function (e) {
+                cleanup().then(function () {
+                  wx.showModal({ title: '导入失败', content: e.message || '请检查表格格式', showCancel: false })
+                })
+              })
+              .then(function () { that.setData({ importing: false }) })
+          },
+        })
       },
     })
   },

@@ -25,7 +25,7 @@
             class="level-row {{form.selfLevel === item.value ? 'level-on' : ''}}"
             data-value="{{item.value}}" bindtap="pickLevel">
         <view class="level-main">
-          <text class="strong">{{item.value}} · {{item.label}}</text>
+          <text class="strong">{{item.label}}</text>
           <text class="muted small">{{item.desc}}</text>
         </view>
         <text wx:if="{{form.selfLevel === item.value}}" class="level-check">✓</text>

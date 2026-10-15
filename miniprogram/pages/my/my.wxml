@@ -7,7 +7,7 @@
     <view class="card">
       <view class="row-between">
         <text class="card-title">我的身份</text>
-        <text wx:if="{{roleText}}" class="tag {{isAdmin ? 'tag-mine' : isScorer ? 'tag-divided' : ''}}">{{roleText}}</text>
+        <text wx:if="{{roleText}}" class="tag {{isAdmin ? 'tag-mine' : isOrganizer ? 'tag-divided' : ''}}">{{roleText}}</text>
       </view>
       <view wx:if="{{roleError}}" class="banner banner-error gap">{{roleError}}</view>
       <view wx:if="{{myOpenid}}" class="openid-row" bindtap="copyOpenid">
@@ -20,13 +20,13 @@
     <view wx:if="{{isAdmin}}" class="card" bindtap="goAdmin">
       <view class="row-between">
         <text class="card-title">后台管理</text>
-        <text class="muted small">管理记分员 ›</text>
+        <text class="muted small">组织者与管理员 ›</text>
       </view>
-      <view class="card-meta">测试数据在各活动的「管理台」里</view>
+      <view class="card-meta">可以增删组织者、移交管理员身份；测试数据在各活动的「管理台」里</view>
     </view>
-    <view wx:elif="{{isScorer}}" class="card">
-      <view class="card-title">记分员</view>
-      <view class="card-meta">你可以为所有活动录入比赛战绩</view>
+    <view wx:elif="{{isOrganizer}}" class="card" bindtap="goAdmin">
+      <view class="card-title">组织者</view>
+      <view class="card-meta">你可以发起活动，并管理所有活动的报名、分队、战绩和积分</view>
     </view>
 
     <view class="section-title">我报名的活动</view>
@@ -60,7 +60,9 @@
     </block>
     <view wx:else class="card">
       <view class="muted small">还没有创建活动</view>
-      <button class="btn btn-plain btn-sm gap" bindtap="createEvent">创建一场 HAT 赛</button>
+      <button wx:if="{{canCreateEvent}}" class="btn btn-plain btn-sm gap"
+              bindtap="createEvent">创建一场 HAT 赛</button>
+      <view wx:else class="muted small gap">只有组织者可以发起活动，需要的话请联系管理员</view>
     </view>
 
     <view class="footer-spacer"></view>

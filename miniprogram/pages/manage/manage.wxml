@@ -49,6 +49,20 @@
       </view>
     </view>
 
+    <!-- 外部名单导入 -->
+    <view wx:if="{{event.status !== 'divided'}}" class="card import-card">
+      <view class="row-between">
+        <text class="card-title">导入名单</text>
+        <text class="tag">活动层</text>
+      </view>
+      <view class="field-hint">
+        支持 Excel（.xlsx/.xls）。表头需要包含“姓名、性别、能力”，能力填写 L1-L5；导入后会占用名额。
+      </view>
+      <button class="btn btn-plain btn-sm" loading="{{importing}}" disabled="{{importing}}" bindtap="importRoster">
+        {{importing ? '导入中…' : '选择 Excel 文件'}}
+      </button>
+    </view>
+
     <!-- 分队约束 -->
     <view class="card">
       <view class="card-title">分队约束</view>
@@ -103,6 +117,7 @@
             <text class="strong">{{item.name}}</text>
             <text class="muted small">　{{item.genderText}}</text>
             <text wx:if="{{item.isTest}}" class="tag tag-test">测试</text>
+            <text wx:if="{{item.isImported}}" class="tag tag-imported">导入</text>
           </view>
           <view wx:if="{{item.remark}}" class="muted small">{{item.remark}}</view>
           <view wx:if="{{item.phone}}" class="muted small">{{item.phone}}</view>

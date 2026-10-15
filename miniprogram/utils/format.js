@@ -7,7 +7,7 @@
  * 这样时区语义就固定在用户本机，不受云函数运行时区影响。
  */
 
-const LEVEL_TEXT = ['', '新手', '入门', '一般', '熟练', '高手']
+const LEVEL_TEXT = ['', 'L1', 'L2', 'L3', 'L4', 'L5']
 const STATUS_TEXT = { draft: '草稿', open: '报名中', closed: '报名关闭', divided: '已分队' }
 
 function pad (n) { return n < 10 ? '0' + n : '' + n }

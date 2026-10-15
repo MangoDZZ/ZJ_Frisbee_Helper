@@ -16,17 +16,17 @@
         <view class="field-label">分几个队 <text class="req">*</text></view>
         <input class="field-input" value="{{teamCount}}" data-field="teamCount"
                bindinput="onInput" type="number" maxlength="2" />
-        <view class="field-hint">每场赛事可以分不同的队数，到场人少就少分几队</view>
+        <view class="field-hint">每场赛事可以分不同的队数，人少就少分几队</view>
       </view>
     </view>
 
     <view class="card">
       <view class="row-between">
-        <text class="card-title">到场名单</text>
+        <text class="card-title">赛前检录名单</text>
         <text class="muted small" bindtap="selectAll">全选 / 全不选</text>
       </view>
       <view class="field-hint">
-        默认全选报名名单，取消这场没来的人。只有到场的人会参与本场分队。
+        默认全选报名名单，取消这场没来的人。只有检录过的人会参与本场分队。
       </view>
       <view class="muted small gap">已选 {{checkedCount}} / {{roster.length}} 人</view>
 

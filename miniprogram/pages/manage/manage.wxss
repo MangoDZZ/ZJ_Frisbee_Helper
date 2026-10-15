@@ -121,3 +121,8 @@
   color: #96631a;
   margin-left: 10rpx;
 }
+.tag-imported {
+  background: #eaf3ff;
+  color: #2b63a5;
+  margin-left: 10rpx;
+}

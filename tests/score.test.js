@@ -123,6 +123,23 @@ test('MVP 额外 +1，且只会落在败方', function () {
   eq(rowOf(res, 'a1').mvpCount, 0)
 })
 
+test('弃赛扣 3 分，且弃赛两次及以上最终积分归零', function () {
+  const su = makeSignups(['p1', 'p2', 'p3'])
+  const res = score.computeStandings([
+    match({ scoreA: 15, scoreB: 10, participantsA: ['p1'], participantsB: ['p2'], forfeitIds: ['p3'] }),
+    match({ tournamentId: 't2', scoreA: 12, scoreB: 10, participantsA: ['p1'], participantsB: ['p2'], forfeitIds: ['p3'] }),
+  ], su)
+  eq(pointsOf(res, 'p3'), 0, '弃赛两次后积分归零')
+  eq(rowOf(res, 'p3').forfeitCount, 2)
+  eq(pointsOf(res, 'p1'), 6)
+
+  const once = score.computeStandings([
+    match({ scoreA: 15, scoreB: 10, participantsA: ['p1'], participantsB: ['p2'], forfeitIds: ['p3'] }),
+  ], su)
+  eq(pointsOf(once, 'p3'), -3)
+  eq(score.FORFEIT, -3)
+})
+
 test('跨多场赛事按人汇总累加', function () {
   const su = makeSignups(['p1', 'p2', 'p3', 'p4'])
   const res = score.computeStandings([
@@ -270,10 +287,11 @@ test('队伍战绩（单场赛事内）', function () {
   eq(byIdx[0].scoreAgainst, 25)
 })
 
-test('分值常量就是约定的 3 / 1 / 1', function () {
+test('分值常量就是约定的 3 / 1 / 1 / -3', function () {
   eq(score.WIN, 3)
   eq(score.LOSS, 1)
   eq(score.MVP_BONUS, 1)
+  eq(score.FORFEIT, -3)
 })
 
 // ---------------------------------------------------------------- 汇总

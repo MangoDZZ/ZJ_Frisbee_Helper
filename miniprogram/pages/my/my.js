@@ -10,7 +10,8 @@ Page({
     signups: [],
     owned: [],
     isAdmin: false,
-    isScorer: false,
+    isOrganizer: false,
+    canCreateEvent: false,
     // 身份卡片：显示云函数实际认出的 openid，排查「为什么我不是管理员」时直接对照
     myOpenid: '',
     roleText: '',
@@ -39,10 +40,11 @@ Page({
         loading: false,
         failMessage: '',
         isAdmin: !!(r[2] && r[2].isAdmin),
-        isScorer: !!(r[2] && r[2].isScorer),
+        isOrganizer: !!(r[2] && r[2].isOrganizer),
+        canCreateEvent: !!(r[2] && r[2].canCreateEvent),
         myOpenid: (r[2] && r[2].openid) || '',
         roleText: r[2] && r[2].failed ? ''
-          : r[2].isAdmin ? '管理员' : r[2].isScorer ? '记分员' : '参与者',
+          : r[2].isAdmin ? '管理员' : r[2].isOrganizer ? '组织者' : '参与者',
         roleError: r[2] && r[2].failed ? '身份查询失败：' + r[2].message : '',
         signups: (r[0].list || []).map(function (s) {
           return {
@@ -56,8 +58,7 @@ Page({
             meText: s.name + ' · ' + fmt.genderText(s.gender) + ' · ' + fmt.levelText(s.selfLevel),
           }
         }),
-        owned: (r[1].list || []).map(function (e) {
-          return {
+        owned: (r[1].list || []).map(function (e) {          return {
             _id: e._id,
             name: e.name,
             timeText: fmt.formatRange(e.startTime, e.endTime),

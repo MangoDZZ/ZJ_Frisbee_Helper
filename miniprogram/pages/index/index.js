@@ -9,6 +9,7 @@ Page({
     loading: true,
     failed: false,
     scope: 'all',
+    canCreateEvent: false,
   },
 
   onShow: function () {
@@ -26,14 +27,19 @@ Page({
 
   load: function () {
     const that = this
-    return api.event('list', { scope: this.data.scope }, { loading: false, toastError: false })
-      .then(function (d) {
-        that.setData({
-          list: (d.list || []).map(decorate),
-          loading: false,
-          failed: false,
-        })
+    return Promise.all([
+      api.event('list', { scope: this.data.scope }, { loading: false, toastError: false }),
+      // whoami 只用来决定「创建活动」入口显不显示，真正的拦截在云函数里
+      api.admin('whoami', {}, { loading: false, toastError: false })
+        .catch(function () { return { canCreateEvent: false } }),
+    ]).then(function (r) {
+      that.setData({
+        list: (r[0].list || []).map(decorate),
+        canCreateEvent: !!(r[1] && r[1].canCreateEvent),
+        loading: false,
+        failed: false,
       })
+    })
       .catch(function (e) {
         that.setData({ loading: false, failed: true, failMessage: e.message })
       })

@@ -201,33 +201,48 @@ function scanCalls (dir) {
 }
 scanCalls(mp)
 
-// ---------------------------------------------------------------- 4. roles.js 副本一致
+// ---------------------------------------------------------------- 4. shared/ 副本一致
 
-console.log('检查各云函数的 roles.js 副本是否一致')
-// 云函数各自独立部署，没法共享代码，所以 roles.js 在每个函数里都有一份。
-// 一旦副本之间漂移，就会出现"同一个人在某个云函数里是管理员、在另一个里不是"
-// 这种极难排查的权限 bug。
-const roleCopies = []
+console.log('检查 shared/ 下的共用模块与各云函数的副本是否一致')
+// 云函数各自独立部署，部署包里只有自己那个目录，没法引用外面的代码，所以副本是必需的。
+// 但**源头只允许有一个**：shared/ 下的文件才是能改的，各云函数 lib/ 下的是生成物。
+// 一旦漂移，就会出现"同一个人在某些功能里是管理员、另一些里不是"这种极难排查的权限 bug。
+const sharedDir = path.join(root, 'shared')
+const sharedFiles = fs.existsSync(sharedDir)
+  ? fs.readdirSync(sharedDir).filter(function (f) { return f.endsWith('.js') })
+  : []
+if (sharedFiles.length === 0) {
+  bad('shared/ 目录不存在或没有 .js 文件')
+}
+
 FN_KEYS.forEach(function (k) {
-  const p = path.join(root, 'cloudfunctions', FN[k], 'lib', 'roles.js')
-  if (!fs.existsSync(p)) {
-    bad('云函数 ' + FN[k] + ' 缺少 lib/roles.js')
-    return
-  }
-  roleCopies.push({ fn: FN[k], src: fs.readFileSync(p, 'utf8') })
-})
-if (roleCopies.length > 1) {
-  const base = roleCopies[0]
-  roleCopies.slice(1).forEach(function (c) {
-    if (c.src !== base.src) {
-      bad('roles.js 副本不一致：' + c.fn + ' 与 ' + base.fn + ' 内容不同，' +
-        '会导致同一个人在不同云函数里身份不一致')
+  const libDir = path.join(root, 'cloudfunctions', FN[k], 'lib')
+  const copies = fs.existsSync(libDir)
+    ? fs.readdirSync(libDir).filter(function (f) { return f.endsWith('.js') })
+    : []
+  sharedFiles.forEach(function (file) {
+    const copyPath = path.join(libDir, file)
+    if (!fs.existsSync(copyPath)) return          // 这个云函数不需要它
+    const src = fs.readFileSync(path.join(sharedDir, file), 'utf8')
+    if (fs.readFileSync(copyPath, 'utf8') !== src) {
+      bad(FN[k] + '/lib/' + file + ' 与 shared/' + file + ' 不一致，' +
+        '跑一下 node scripts/sync-shared.js')
     }
   })
-  // 管理员名单不能是空的，否则没人能管理记分员
-  const m = base.src.match(/const ADMIN_OPENIDS = \[([\s\S]*?)\]/)
+  // 副本里有、shared/ 里没有的共用模块 = 改名后没同步干净（各云函数自有的
+  // score.js / import-list.js 不在此列，它们在 shared/ 里本来就没有对应源文件）
+  if (copies.indexOf('roles.js') < 0) {
+    bad('云函数 ' + FN[k] + ' 缺少 lib/roles.js')
+  }
+})
+
+// 管理员名单不能是空的，否则没人能管理组织者、也没人能接手管理权
+const rolesSrcPath = path.join(sharedDir, 'roles.js')
+if (fs.existsSync(rolesSrcPath)) {
+  const src = fs.readFileSync(rolesSrcPath, 'utf8')
+  const m = src.match(/const ADMIN_OPENIDS = \[([\s\S]*?)\]/)
   if (!m || m[1].trim() === '') {
-    bad('ADMIN_OPENIDS 是空的，将没有任何人可以管理记分员')
+    bad('ADMIN_OPENIDS 是空的，将没有任何人可以管理组织者')
   }
 }
 

@@ -8,7 +8,7 @@
       <view class="card-meta">
         {{list.length > 0 ? '共 ' + list.length + ' 场赛事' : '还没有赛事'}}
       </view>
-      <view class="field-hint">每场赛事各自统计到场选手、各自重新随机分队。积分在活动层汇总。</view>
+      <view class="field-hint">每场赛事各自做赛前检录、各自重新随机分队。积分在活动层汇总。</view>
     </view>
 
     <view wx:for="{{list}}" wx:key="_id" class="card"
@@ -31,7 +31,7 @@
     <view wx:if="{{list.length === 0}}" class="empty">
       <view class="empty-title">还没有赛事</view>
       <view class="small">
-        {{isOrganizer ? '新建一场赛事，勾选到场的人就能分队了' : '组织者还没有开赛'}}
+        {{isOrganizer ? '新建一场赛事，勾选赛前检录的人就能分队了' : '组织者还没有开赛'}}
       </view>
     </view>
 

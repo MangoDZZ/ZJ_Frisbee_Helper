@@ -10,15 +10,27 @@ const cloud = require('wx-server-sdk')
 
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 
+const common = require('./lib/common.js')
 const roles = require('./lib/roles.js')
+const store = require('./lib/store.js')
+const importList = require('./lib/import-list.js')
 
 const db = cloud.database()
 const _ = db.command
 const events = db.collection('events')
 const signups = db.collection('signups')
 
+const ok = common.ok
+const err = common.err
+const trimStr = common.trimStr
+const asInt = common.asInt
+const fetchAll = common.fetchAll
+const fetchByIds = common.fetchByIds
+const removeWhere = common.removeWhere
+
 const MIN_LEVEL = 1
 const MAX_LEVEL = 5
+const MAX_IMPORT_ROWS = 500
 
 // ---------------------------------------------------------------- 测试数据
 
@@ -68,44 +80,13 @@ function makeTestSignup (eventId, batch, i) {
   }
 }
 
-function ok (data) { return { ok: true, data: data === undefined ? null : data } }
-function err (code, message, detail) {
-  return { ok: false, error: { code: code, message: message, detail: detail || null } }
-}
-
-function trimStr (v) { return typeof v === 'string' ? v.trim() : '' }
-
 /**
- * 解析整数。不能直接用 Number()：Number(null) / Number('') / Number([]) 都是 0，
- * 会把缺失值静默当成 0。其他字段靠范围校验碰巧拦住了，但比分本来就允许 0，
- * 一条 scoreB: null 会被静默录成 15:0。
+ * 管理权校验。管理员和组织者可以管任意活动，创建者管自己建的活动。
+ * 球员水平只在这条路径上返回，其他任何出口都不带 level——参与者只能看到自己的自评。
  */
-function asInt (v) {
-  if (typeof v === 'number') {
-    return isFinite(v) && Math.floor(v) === v ? v : null
-  }
-  if (typeof v === 'string') {
-    const s = v.trim()
-    if (s === '') return null
-    const n = Number(s)
-    return isFinite(n) && Math.floor(n) === n ? n : null
-  }
-  return null
-}
-
-async function loadEvent (eventId) {
-  const id = trimStr(eventId)
-  if (!id) return { error: err('INVALID_INPUT', '缺少活动 id') }
-  const res = await events.doc(id).get().catch(function () { return null })
-  if (!res || !res.data) return { error: err('NOT_FOUND', '活动不存在或已被删除') }
-  return { value: Object.assign({ _id: id }, res.data) }
-}
-
-function requireOwner (evt, openid) {
-  // 管理员拥有组织者的全部权限。球员水平只在这条路径上返回，
-  // 其他任何出口都不带 level——参与者只能看到自己的自评。
-  if (!roles.isOrganizer(evt, openid)) {
-    return err('FORBIDDEN', '只有活动创建者或管理员可以进行此操作')
+function requireManage (evt, r) {
+  if (!roles.canManageEvent(r, evt)) {
+    return err('FORBIDDEN', '只有活动创建者、组织者或管理员可以进行此操作')
   }
   return null
 }
@@ -149,8 +130,8 @@ const actions = {
    * 开抢瞬间大家争同一个 event 文档的锁很容易耗尽。
    * 更新指令对单条记录本身就是原子的，这里用它足够。
    */
-  async submit (d, openid) {
-    const e = await loadEvent(d.eventId)
+  async submit (d, r) {
+    const e = await store.loadEvent(db, d.eventId)
     if (e.error) return e.error
     const evt = e.value
 
@@ -167,7 +148,7 @@ const actions = {
 
     // 快速路径：已报名就直接改资料，不再占名额。
     const existing = await signups.where({
-      eventId: evt._id, openid: openid, status: 'signed',
+      eventId: evt._id, openid: r.openid, status: 'signed',
     }).limit(1).get()
     if (existing.data && existing.data.length > 0) {
       await signups.doc(existing.data[0]._id).update({
@@ -194,7 +175,7 @@ const actions = {
       const res = await signups.add({
         data: Object.assign({}, v.value, {
           eventId: evt._id,
-          openid: openid,
+          openid: r.openid,
           adminLevel: null,
           status: 'signed',
           createTime: Date.now(),
@@ -216,8 +197,8 @@ const actions = {
   /**
    * 取消报名。先删明细成功再把名额加回，顺序反了会在并发下把名额加多。
    */
-  async cancel (d, openid) {
-    const e = await loadEvent(d.eventId)
+  async cancel (d, r) {
+    const e = await store.loadEvent(db, d.eventId)
     if (e.error) return e.error
     const evt = e.value
 
@@ -226,7 +207,7 @@ const actions = {
     }
 
     const mine = await signups.where({
-      eventId: evt._id, openid: openid, status: 'signed',
+      eventId: evt._id, openid: r.openid, status: 'signed',
     }).limit(1).get()
     if (!mine.data || mine.data.length === 0) {
       return err('NOT_FOUND', '你还没有报名这场活动')
@@ -242,17 +223,18 @@ const actions = {
     return ok({ cancelled: true })
   },
 
-  async mine (d, openid) {
-    const res = await signups.where({
-      openid: openid, status: 'signed',
-    }).orderBy('createTime', 'desc').limit(100).get()
-    const list = res.data || []
+  /** 我报名的活动（含活动摘要，供「我的」页展示）。 */
+  async mine (d, r) {
+    const list = await fetchAll(function () {
+      return signups.where({ openid: r.openid, status: 'signed' })
+        .orderBy('createTime', 'desc')
+    }, { label: '我的报名' })
     if (list.length === 0) return ok({ list: [] })
 
-    const eventIds = list.map(function (s) { return s.eventId })
-    const evts = await events.where({ _id: _.in(eventIds) }).limit(100).get()
+    const evts = await fetchByIds(db, 'events',
+      list.map(function (s) { return s.eventId }))
     const byId = {}
-    ;(evts.data || []).forEach(function (e) { byId[e._id] = e })
+    ;(evts || []).forEach(function (e) { byId[e._id] = e })
 
     const out = list.map(function (s) {
       const e = byId[s.eventId]
@@ -276,22 +258,17 @@ const actions = {
     return ok({ list: out })
   },
 
-  /** 全部报名名单。仅创建者可调——参与者拿不到别人的手机号。 */
-  async listAll (d, openid) {
-    const e = await loadEvent(d.eventId)
+  /** 全部报名名单。仅管理身份可调——参与者拿不到别人的手机号。 */
+  async listAll (d, r) {
+    const e = await store.loadEvent(db, d.eventId)
     if (e.error) return e.error
-    const forbidden = requireOwner(e.value, openid)
+    const forbidden = requireManage(e.value, r)
     if (forbidden) return forbidden
 
-    const all = []
-    // 单次出包有上限，分页取全。
-    for (let skip = 0; skip < 1000; skip += 100) {
-      const page = await signups.where({ eventId: e.value._id, status: 'signed' })
-        .orderBy('createTime', 'asc').skip(skip).limit(100).get()
-      const rows = page.data || []
-      for (let i = 0; i < rows.length; i++) all.push(rows[i])
-      if (rows.length < 100) break
-    }
+    const all = await fetchAll(function () {
+      return signups.where({ eventId: e.value._id, status: 'signed' })
+        .orderBy('createTime', 'asc')
+    }, { label: '活动报名名单' })
 
     const out = all.map(function (s) {
       return {
@@ -305,17 +282,104 @@ const actions = {
         phone: s.phone || '',
         remark: s.remark || '',
         isTest: s.isTest === true,
+        isImported: s.isImported === true,
         createTime: s.createTime,
       }
     })
     return ok({ list: out, count: out.length })
   },
 
-  /** 创建者覆盖某人的水平。传 null 表示清除覆盖、回到自评值。 */
-  async updateLevel (d, openid) {
-    const e = await loadEvent(d.eventId)
+  /**
+   * 从 xlsx 导入活动层名单。导入人员没有微信 openid，只用于组织者维护名单、
+   * 赛事到场和分队；每条记录都带 isImported 标记，避免和真实用户混淆。
+   */
+  async importSignups (d, r) {
+    const e = await store.loadEvent(db, d.eventId)
     if (e.error) return e.error
-    const forbidden = requireOwner(e.value, openid)
+    const evt = e.value
+    const forbidden = requireManage(evt, r)
+    if (forbidden) return forbidden
+    if (evt.status === 'divided') return err('INVALID_STATE', '活动已分队，不能再导入名单')
+
+    const fileID = trimStr(d.fileID)
+    if (!fileID || fileID.length > 512) return err('INVALID_INPUT', '缺少导入文件')
+
+    let rows
+    try {
+      // xlsx 只在真正导入时加载，普通报名请求不增加冷启动依赖开销。
+      const XLSX = require('xlsx')
+      const downloaded = await cloud.downloadFile({ fileID: fileID })
+      const workbook = XLSX.read(downloaded.fileContent, { type: 'buffer', cellDates: false })
+      const names = workbook.SheetNames || []
+      if (names.length === 0) return err('INVALID_IMPORT', '文件里没有工作表')
+      rows = XLSX.utils.sheet_to_json(workbook.Sheets[names[0]], { header: 1, defval: '' })
+    } catch (e2) {
+      console.error('[hat-signup] import read failed', e2)
+      return err('INVALID_IMPORT', '无法读取 Excel 文件，请上传 .xlsx 文件')
+    }
+
+    const parsed = importList.parseRows(rows)
+    if (parsed.error) return parsed.error
+    const list = parsed.value
+    if (list.length > MAX_IMPORT_ROWS) {
+      return err('INVALID_IMPORT', '一次最多导入 ' + MAX_IMPORT_ROWS + ' 人')
+    }
+    if (evt.remaining < list.length) {
+      return err('EVENT_FULL', '剩余名额只有 ' + evt.remaining + ' 个，导入需要 ' + list.length + ' 个', {
+        remaining: evt.remaining, requested: list.length,
+      })
+    }
+
+    // 和真实报名、测试数据共用原子占位，保证导入不会绕过人数上限。
+    const claim = await events.where({ _id: evt._id, remaining: _.gte(list.length) }).update({
+      data: { remaining: _.inc(-list.length), signupCount: _.inc(list.length) },
+    })
+    if (!claim.stats || claim.stats.updated !== 1) return err('EVENT_FULL', '名额不足，请刷新后重试')
+
+    const batch = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8)
+    let added = 0
+    try {
+      for (let i = 0; i < list.length; i++) {
+        const s = list[i]
+        const now = Date.now()
+        await signups.add({ data: {
+          eventId: evt._id,
+          openid: 'import-' + batch + '-' + i,
+          name: s.name,
+          gender: s.gender,
+          selfLevel: s.selfLevel,
+          adminLevel: null,
+          phone: s.phone || '',
+          remark: s.remark || '',
+          status: 'signed',
+          isImported: true,
+          importBatch: batch,
+          sourceRow: s.sourceRow,
+          createTime: now + i,
+          updateTime: now,
+        } })
+        added++
+      }
+    } catch (addError) {
+      if (added > 0) {
+        await removeWhere(db, 'signups', { eventId: evt._id, importBatch: batch })
+          .catch(function () {})
+      }
+      await events.doc(evt._id).update({
+        data: { remaining: _.inc(list.length), signupCount: _.inc(-list.length) },
+      }).catch(function (e2) {
+        console.error('[hat-signup] 导入名单名额补偿失败 eventId=' + evt._id, e2)
+      })
+      throw addError
+    }
+    return ok({ imported: added, batch: batch })
+  },
+
+  /** 管理身份覆盖某人的水平。传 null 表示清除覆盖、回到自评值。 */
+  async updateLevel (d, r) {
+    const e = await store.loadEvent(db, d.eventId)
+    if (e.error) return e.error
+    const forbidden = requireManage(e.value, r)
     if (forbidden) return forbidden
 
     const signupId = trimStr(d.signupId)
@@ -351,10 +415,10 @@ const actions = {
    * 假报名照常占名额：防超额靠的是 remaining 计数，测试数据若绕过它，
    * signupCount / remaining 就和真实记录对不上了。
    */
-  async seedTestSignups (d, openid) {
-    if (!roles.isAdmin(openid)) return err('FORBIDDEN', '只有管理员可以生成测试数据')
+  async seedTestSignups (d, r) {
+    if (!r.isAdmin) return err('FORBIDDEN', '只有管理员可以生成测试数据')
 
-    const e = await loadEvent(d.eventId)
+    const e = await store.loadEvent(db, d.eventId)
     if (e.error) return e.error
     const evt = e.value
 
@@ -404,21 +468,17 @@ const actions = {
    * 测试选手如果已经进了某场赛事，直接删会让分队和比赛记录里留下指向不存在的人的引用，
    * 所以这种情况拒绝执行，提示先删掉那场赛事（删赛事会级联清掉它的分队和比赛）。
    */
-  async clearTestSignups (d, openid) {
-    if (!roles.isAdmin(openid)) return err('FORBIDDEN', '只有管理员可以清理测试数据')
+  async clearTestSignups (d, r) {
+    if (!r.isAdmin) return err('FORBIDDEN', '只有管理员可以清理测试数据')
 
-    const e = await loadEvent(d.eventId)
+    const e = await store.loadEvent(db, d.eventId)
     if (e.error) return e.error
     const evt = e.value
 
-    const testIds = []
-    for (let skip = 0; skip < 1000; skip += 100) {
-      const page = await signups.where({ eventId: evt._id, isTest: true })
-        .field({ _id: true }).skip(skip).limit(100).get()
-      const rows = page.data || []
-      for (let i = 0; i < rows.length; i++) testIds.push(rows[i]._id)
-      if (rows.length < 100) break
-    }
+    const testRows = await fetchAll(function () {
+      return signups.where({ eventId: evt._id, isTest: true }).field({ _id: true })
+    }, { label: '测试报名' })
+    const testIds = testRows.map(function (row) { return row._id })
     if (testIds.length === 0) return ok({ removed: 0 })
 
     const tours = await db.collection('tournaments').where({ eventId: evt._id })
@@ -445,13 +505,7 @@ const actions = {
     }
 
     // 先删明细再归还名额，顺序反了会在并发下把名额加多。
-    let removed = 0
-    for (;;) {
-      const r = await signups.where({ eventId: evt._id, isTest: true }).limit(100).remove()
-      const n = (r.stats && r.stats.removed) || 0
-      removed += n
-      if (n < 100) break
-    }
+    const removed = await removeWhere(db, 'signups', { eventId: evt._id, isTest: true })
     if (removed > 0) {
       await events.doc(evt._id).update({
         data: { remaining: _.inc(removed), signupCount: _.inc(-removed) },
@@ -471,7 +525,9 @@ exports.main = async function (event) {
   if (!handler) return err('UNKNOWN_ACTION', '未知操作：' + action)
 
   try {
-    return await handler(event.data || {}, openid)
+    // 角色只查一次，之后所有权限判定都是纯函数。
+    const r = await roles.loadRoles(db, openid)
+    return await handler(event.data || {}, r)
   } catch (e) {
     console.error('[hat-signup] action=' + action, e)
     return err('INTERNAL', (e && e.message) || '服务异常，请重试')

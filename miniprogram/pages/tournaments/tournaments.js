@@ -38,7 +38,7 @@ Page({
           list: (d.list || []).map(function (t, i) {
             return Object.assign({}, t, {
               seq: i + 1,
-              metaText: t.attendeeCount + ' 人到场 · 分 ' + t.teamCount + ' 队',
+              metaText: t.attendeeCount + ' 人检录 · 分 ' + t.teamCount + ' 队',
               stateText: !t.published ? '未分队'
                 : t.matchCount > 0 ? '已记录 ' + t.matchCount + ' 场比赛' : '已分队',
               stateClass: !t.published ? 'tag-draft'

@@ -75,6 +75,17 @@
       </view>
     </view>
 
+    <!-- 弃赛 -->
+    <view wx:if="{{teamAIndex !== null && teamBIndex !== null}}" class="card">
+      <view class="card-title">弃赛登记</view>
+      <view class="field-hint">弃赛人员本场扣 3 分，不计胜负积分；累计弃赛 2 次及以上，活动积分归零。</view>
+      <view class="options gap">
+        <view wx:for="{{forfeitCandidates}}" wx:key="_id"
+              class="option {{item.selected ? 'option-forfeit' : ''}}"
+              data-id="{{item._id}}" bindtap="toggleForfeit">{{item.name}}</view>
+      </view>
+    </view>
+
     <!-- MVP -->
     <view wx:if="{{mvpSide}}" class="card">
       <view class="card-title">本场 MVP</view>

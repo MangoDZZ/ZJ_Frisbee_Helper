@@ -46,7 +46,7 @@
       <view wx:for="{{tournaments}}" wx:key="_id" class="team-line">
         <text class="strong">{{item.name}}</text>
         <text class="muted small">
-          {{item.attendeeCount}}人 · {{item.teamCount}}队{{item.matchCount > 0 ? ' · ' + item.matchCount + '场比赛' : ''}}
+          {{item.attendeeCount}}人检录 · {{item.teamCount}}队{{item.matchCount > 0 ? ' · ' + item.matchCount + '场比赛' : ''}}
         </text>
       </view>
     </view>
@@ -65,8 +65,8 @@
 </view>
 
 <view wx:if="{{event}}" class="footer-bar">
-  <button wx:if="{{isOwner}}" class="btn btn-plain" bindtap="goManage">管理台</button>
+  <button wx:if="{{canManage}}" class="btn btn-plain" bindtap="goManage">管理台</button>
   <button wx:if="{{!mySignup && canSignup}}" class="btn" bindtap="goSignup">我要报名</button>
   <button wx:elif="{{!mySignup && !canSignup}}" class="btn" disabled>{{blockReason || '暂不可报名'}}</button>
-  <button wx:elif="{{mySignup && !isOwner}}" class="btn" disabled>已报名</button>
+  <button wx:elif="{{mySignup && !canManage}}" class="btn" disabled>已报名</button>
 </view>

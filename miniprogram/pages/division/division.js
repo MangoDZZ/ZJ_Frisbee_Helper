@@ -132,7 +132,7 @@ Page({
     if (attendees.length < teamCount) {
       this.setData({
         loading: false,
-        failMessage: '到场 ' + attendees.length + ' 人，少于 ' + teamCount + ' 个队',
+        failMessage: '赛前检录 ' + attendees.length + ' 人，少于 ' + teamCount + ' 个队',
       })
       return Promise.resolve()
     }
@@ -170,7 +170,7 @@ Page({
     this.setData({
       warnings: res.warnings || [],
       droppedConstraintText: dropped > 0
-        ? '有 ' + dropped + ' 条约束因为相关的人本场没到，已自动忽略或只保留了到场的部分'
+        ? '有 ' + dropped + ' 条约束因为相关的人本场没检录，已自动忽略或只保留了检录的部分'
         : '',
       busy: true,
     })

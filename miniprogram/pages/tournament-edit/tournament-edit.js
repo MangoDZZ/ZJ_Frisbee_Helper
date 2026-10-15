@@ -31,7 +31,7 @@ Page({
             name: d.tournament.name,
             teamCount: String(d.tournament.teamCount),
             lockedReason: d.matchCount > 0
-              ? '这场赛事已记录 ' + d.matchCount + ' 场比赛，改了到场名单会让积分对不上。要改请先删掉比赛记录。'
+              ? '这场赛事已记录 ' + d.matchCount + ' 场比赛，改了赛前检录名单会让积分对不上。要改请先删掉比赛记录。'
               : '',
           })
         })
@@ -121,7 +121,7 @@ Page({
     const attendeeIds = d.roster.filter(function (m) { return m.checked })
       .map(function (m) { return m._id })
     if (attendeeIds.length < teamCount) {
-      return warn('到场 ' + attendeeIds.length + ' 人，少于 ' + teamCount + ' 个队')
+      return warn('赛前检录 ' + attendeeIds.length + ' 人，少于 ' + teamCount + ' 个队')
     }
 
     const that = this

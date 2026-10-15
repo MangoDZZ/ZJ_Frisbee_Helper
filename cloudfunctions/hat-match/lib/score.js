@@ -14,6 +14,10 @@
 const WIN = 3
 const LOSS = 1
 const MVP_BONUS = 1
+const FORFEIT = -3
+
+/** 累计弃赛达到这个次数，最终积分归零（活动级规则）。 */
+const FORFEIT_RESET = 2
 
 /** 单场比赛的胜负判定。不允许平局，录入时已挡，这里再兜一次底。 */
 function winnerOf (match) {
@@ -51,6 +55,7 @@ function computeStandings (matches, signupsById) {
       won: 0,
       lost: 0,
       mvpCount: 0,
+      forfeitCount: 0,
       tournamentCount: 0,
     }
     rowOf[id] = row
@@ -103,7 +108,22 @@ function computeStandings (matches, signupsById) {
       row.points += MVP_BONUS
       row.mvpCount++
     }
+
+    // 弃赛人员单独记录：不计该场胜负分，但扣 3 分。
+    const forfeits = asArray(match.forfeitIds)
+    for (let i = 0; i < forfeits.length; i++) {
+      const row = rowOf[forfeits[i]]
+      if (!row) continue
+      row.points += FORFEIT
+      row.forfeitCount++
+      noteTournament(forfeits[i], match.tournamentId)
+    }
   }
+
+  // 活动级规则：累计弃赛两次及以上，最终积分归零。
+  rows.forEach(function (row) {
+    if (row.forfeitCount >= FORFEIT_RESET) row.points = 0
+  })
 
   rows.sort(function (a, b) {
     if (b.points !== a.points) return b.points - a.points
@@ -178,6 +198,8 @@ module.exports = {
   WIN: WIN,
   LOSS: LOSS,
   MVP_BONUS: MVP_BONUS,
+  FORFEIT: FORFEIT,
+  FORFEIT_RESET: FORFEIT_RESET,
   winnerOf: winnerOf,
   computeStandings: computeStandings,
   computeTeamRecords: computeTeamRecords,

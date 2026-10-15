@@ -4,11 +4,11 @@
  * 赛事、约束与分队云函数。
  *
  * 层级：活动(event) → 赛事(tournament) → 分队(division) → 比赛(match)
- * 报名在活动层，所以 signupId 是活动内的人员主键；赛事各自记录「到场名单」，
- * 分队只从当次到场的人里抽。
+ * 报名在活动层，所以 signupId 是活动内的人员主键；赛事各自记录「赛前检录名单」，
+ * 分队只从当次检录的人里抽。
  *
  * 分队算法在小程序端跑，这里只负责校验和持久化。校验不能省：
- *  - 名单必须与该赛事的到场名单完全一致，防止客户端塞进不存在的人或漏人；
+ *  - 名单必须与该赛事的赛前检录名单完全一致，防止客户端塞进不存在的人或漏人；
  *  - 统计一律服务端按报名记录重算，不采信客户端传来的数字。
  */
 
@@ -16,15 +16,21 @@ const cloud = require('wx-server-sdk')
 
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 
+const common = require('./lib/common.js')
 const roles = require('./lib/roles.js')
+const store = require('./lib/store.js')
 
 const db = cloud.database()
-const events = db.collection('events')
-const signups = db.collection('signups')
 const constraints = db.collection('constraints')
 const divisions = db.collection('divisions')
 const tournaments = db.collection('tournaments')
 const matchesCol = db.collection('matches')
+
+const ok = common.ok
+const err = common.err
+const trimStr = common.trimStr
+const asInt = common.asInt
+const removeWhere = common.removeWhere
 
 const STAR_LEVEL = 4
 const MAX_CONSTRAINTS = 200
@@ -32,74 +38,12 @@ const MAX_TOURNAMENTS = 50
 const MIN_TEAMS = 2
 const MAX_TEAMS = 20
 
-function ok (data) { return { ok: true, data: data === undefined ? null : data } }
-function err (code, message, detail) {
-  return { ok: false, error: { code: code, message: message, detail: detail || null } }
-}
-
-function trimStr (v) { return typeof v === 'string' ? v.trim() : '' }
-
-function asInt (v) {
-  if (typeof v === 'number') {
-    return isFinite(v) && Math.floor(v) === v ? v : null
-  }
-  if (typeof v === 'string') {
-    const s = v.trim()
-    if (s === '') return null
-    const n = Number(s)
-    return isFinite(n) && Math.floor(n) === n ? n : null
+/** 管理权校验。管理员和组织者可以管任意活动，创建者管自己建的活动。 */
+function requireManage (evt, r) {
+  if (!roles.canManageEvent(r, evt)) {
+    return err('FORBIDDEN', '只有活动创建者、组织者或管理员可以进行此操作')
   }
   return null
-}
-
-async function loadEvent (eventId) {
-  const id = trimStr(eventId)
-  if (!id) return { error: err('INVALID_INPUT', '缺少活动 id') }
-  const res = await events.doc(id).get().catch(function () { return null })
-  if (!res || !res.data) return { error: err('NOT_FOUND', '活动不存在或已被删除') }
-  return { value: Object.assign({ _id: id }, res.data) }
-}
-
-/** 赛事连同它所属的活动一起取出来——权限判断要用活动的 ownerOpenid。 */
-async function loadTournament (tournamentId) {
-  const id = trimStr(tournamentId)
-  if (!id) return { error: err('INVALID_INPUT', '缺少赛事 id') }
-  const res = await tournaments.doc(id).get().catch(function () { return null })
-  if (!res || !res.data) return { error: err('NOT_FOUND', '赛事不存在或已被删除') }
-  const t = Object.assign({ _id: id }, res.data)
-  const e = await loadEvent(t.eventId)
-  if (e.error) return e
-  return { value: { tournament: t, evt: e.value } }
-}
-
-function requireOrganizer (evt, openid) {
-  if (!roles.isOrganizer(evt, openid)) {
-    return err('FORBIDDEN', '只有活动创建者或管理员可以进行此操作')
-  }
-  return null
-}
-
-/** 取这场活动的全部有效报名，返回 id → 记录的映射。 */
-async function loadSignups (eventId) {
-  const all = []
-  for (let skip = 0; skip < 1000; skip += 100) {
-    const page = await signups.where({ eventId: eventId, status: 'signed' })
-      .orderBy('createTime', 'asc').skip(skip).limit(100).get()
-    const rows = page.data || []
-    for (let i = 0; i < rows.length; i++) all.push(rows[i])
-    if (rows.length < 100) break
-  }
-  const byId = {}
-  for (let i = 0; i < all.length; i++) {
-    const s = all[i]
-    byId[s._id] = {
-      _id: s._id,
-      name: s.name,
-      gender: s.gender,
-      level: s.adminLevel == null ? s.selfLevel : s.adminLevel,
-    }
-  }
-  return { list: all, byId: byId }
 }
 
 async function countMatchesOf (tournamentId) {
@@ -122,7 +66,7 @@ function stripTeamStats (stats) {
   return { count: stats.count, male: stats.male, female: stats.female }
 }
 
-/** 校验到场名单：必须是该活动报名记录的子集，去重，且够分队。 */
+/** 校验赛前检录名单：必须是该活动报名记录的子集，去重，且够分队。 */
 function pickAttendees (raw, signupsById, teamCount) {
   const list = Array.isArray(raw) ? raw : []
   const out = []
@@ -130,14 +74,14 @@ function pickAttendees (raw, signupsById, teamCount) {
     const id = trimStr(list[i])
     if (!id) continue
     if (!signupsById[id]) {
-      return { error: err('UNKNOWN_PLAYER', '到场名单里有不属于这场活动的人：' + id, { id: id }) }
+      return { error: err('UNKNOWN_PLAYER', '赛前检录名单里有不属于这场活动的人：' + id, { id: id }) }
     }
     if (out.indexOf(id) < 0) out.push(id)
   }
   if (out.length < teamCount) {
     return {
       error: err('NOT_ENOUGH_ATTENDEES',
-        '到场 ' + out.length + ' 人，少于 ' + teamCount + ' 个队，无法分队'),
+        '赛前检录 ' + out.length + ' 人，少于 ' + teamCount + ' 个队，无法分队'),
     }
   }
   return { value: out }
@@ -146,11 +90,11 @@ function pickAttendees (raw, signupsById, teamCount) {
 const actions = {
   // ---------------------------------------------------------------- 赛事
 
-  async createTournament (d, openid) {
-    const e = await loadEvent(d.eventId)
+  async createTournament (d, r) {
+    const e = await store.loadEvent(db, d.eventId)
     if (e.error) return e.error
     const evt = e.value
-    const forbidden = requireOrganizer(evt, openid)
+    const forbidden = requireManage(evt, r)
     if (forbidden) return forbidden
 
     const name = trimStr(d.name)
@@ -162,7 +106,7 @@ const actions = {
       return err('INVALID_INPUT', '队伍数需要是 ' + MIN_TEAMS + ' 到 ' + MAX_TEAMS + ' 之间的整数')
     }
 
-    const su = await loadSignups(evt._id)
+    const su = await store.loadSignups(db, evt._id)
     const att = pickAttendees(d.attendeeIds, su.byId, teamCount)
     if (att.error) return att.error
 
@@ -181,16 +125,16 @@ const actions = {
         status: 'draft',
         createTime: now,
         updateTime: now,
-        createdBy: openid,
+        createdBy: r.openid,
       },
     })
     return ok({ _id: res._id })
   },
 
-  async updateTournament (d, openid) {
-    const t = await loadTournament(d.tournamentId)
+  async updateTournament (d, r) {
+    const t = await store.loadTournament(db, d.tournamentId)
     if (t.error) return t.error
-    const forbidden = requireOrganizer(t.value.evt, openid)
+    const forbidden = requireManage(t.value.evt, r)
     if (forbidden) return forbidden
     const tour = t.value.tournament
 
@@ -201,11 +145,11 @@ const actions = {
       return err('INVALID_INPUT', '队伍数需要是 ' + MIN_TEAMS + ' 到 ' + MAX_TEAMS + ' 之间的整数')
     }
 
-    const su = await loadSignups(tour.eventId)
+    const su = await store.loadSignups(db, tour.eventId)
     const att = pickAttendees(d.attendeeIds, su.byId, teamCount)
     if (att.error) return att.error
 
-    // 已录比赛就不能再动到场名单和队伍数——比赛记录引用的是队员 id 和队伍序号。
+    // 已录比赛就不能再动赛前检录名单和队伍数——比赛记录引用的是队员 id 和队伍序号。
     const played = await countMatchesOf(tour._id)
     if (played > 0) {
       const sameTeams = teamCount === tour.teamCount
@@ -213,7 +157,7 @@ const actions = {
         att.value.every(function (id) { return (tour.attendeeIds || []).indexOf(id) >= 0 })
       if (!sameTeams || !sameAtt) {
         return err('MATCHES_EXIST',
-          '这场赛事已经记录了 ' + played + ' 场比赛，不能再改到场名单或队伍数。' +
+          '这场赛事已经记录了 ' + played + ' 场比赛，不能再改赛前检录名单或队伍数。' +
           '如果确实要改，请先删掉这场赛事的比赛记录。',
           { matchCount: played })
       }
@@ -230,11 +174,11 @@ const actions = {
     return ok({ _id: tour._id })
   },
 
-  async listTournaments (d, openid) {
-    const e = await loadEvent(d.eventId)
+  async listTournaments (d, r) {
+    const e = await store.loadEvent(db, d.eventId)
     if (e.error) return e.error
     const evt = e.value
-    const isOrganizer = roles.isOrganizer(evt, openid)
+    const isOrganizer = roles.canManageEvent(r, evt)
 
     const res = await tournaments.where({ eventId: evt._id })
       .orderBy('createTime', 'asc').limit(MAX_TOURNAMENTS).get()
@@ -260,16 +204,16 @@ const actions = {
     return ok({ isOrganizer: isOrganizer, eventName: evt.name, list: list })
   },
 
-  /** 赛事详情。到场名单带水平只给管理身份——参与者看不到任何人的水平。 */
-  async getTournament (d, openid) {
-    const t = await loadTournament(d.tournamentId)
+  /** 赛事详情。赛前检录名单带水平只给管理身份——参与者看不到任何人的水平。 */
+  async getTournament (d, r) {
+    const t = await store.loadTournament(db, d.tournamentId)
     if (t.error) return t.error
     const tour = t.value.tournament
     const evt = t.value.evt
-    const isOrganizer = roles.isOrganizer(evt, openid)
-    const seeLevel = roles.canSeeLevel(evt, openid)
+    const isOrganizer = roles.canManageEvent(r, evt)
+    const seeLevel = isOrganizer
 
-    const su = await loadSignups(tour.eventId)
+    const su = await store.loadSignups(db, tour.eventId)
     const attendees = (tour.attendeeIds || []).map(function (id) {
       const p = su.byId[id] || { _id: id, name: '(已退出)', gender: 'U', level: 0 }
       return seeLevel ? p : stripLevel(p)
@@ -294,21 +238,15 @@ const actions = {
   },
 
   /** 删赛事，连带清掉它的分队和比赛记录。 */
-  async removeTournament (d, openid) {
-    const t = await loadTournament(d.tournamentId)
+  async removeTournament (d, r) {
+    const t = await store.loadTournament(db, d.tournamentId)
     if (t.error) return t.error
-    const forbidden = requireOrganizer(t.value.evt, openid)
+    const forbidden = requireManage(t.value.evt, r)
     if (forbidden) return forbidden
     const tour = t.value.tournament
 
-    for (;;) {
-      const removed = await matchesCol.where({ tournamentId: tour._id }).limit(100).remove()
-      if (!removed.stats || removed.stats.removed < 100) break
-    }
-    for (;;) {
-      const removed = await divisions.where({ tournamentId: tour._id }).limit(100).remove()
-      if (!removed.stats || removed.stats.removed < 100) break
-    }
+    await removeWhere(db, 'matches', { tournamentId: tour._id })
+    await removeWhere(db, 'divisions', { tournamentId: tour._id })
     await tournaments.doc(tour._id).remove()
     return ok({ removed: true })
   },
@@ -319,10 +257,10 @@ const actions = {
    * 覆盖式写入约束。约束挂在**活动**层：「这两个人别同队」对该活动的每场赛事都适用，
    * 不需要每开一场赛事重设一遍。
    */
-  async setConstraints (d, openid) {
-    const e = await loadEvent(d.eventId)
+  async setConstraints (d, r) {
+    const e = await store.loadEvent(db, d.eventId)
     if (e.error) return e.error
-    const forbidden = requireOrganizer(e.value, openid)
+    const forbidden = requireManage(e.value, r)
     if (forbidden) return forbidden
 
     const raw = Array.isArray(d.constraints) ? d.constraints : []
@@ -330,7 +268,7 @@ const actions = {
       return err('INVALID_INPUT', '约束不要超过 ' + MAX_CONSTRAINTS + ' 条')
     }
 
-    const su = await loadSignups(e.value._id)
+    const su = await store.loadSignups(db, e.value._id)
     const clean = []
     for (let i = 0; i < raw.length; i++) {
       const c = raw[i]
@@ -356,10 +294,7 @@ const actions = {
       clean.push({ type: c.type, signupIds: uniq })
     }
 
-    for (;;) {
-      const removed = await constraints.where({ eventId: e.value._id }).limit(100).remove()
-      if (!removed.stats || removed.stats.removed < 100) break
-    }
+    await removeWhere(db, 'constraints', { eventId: e.value._id })
     const now = Date.now()
     for (let i = 0; i < clean.length; i++) {
       await constraints.add({
@@ -374,10 +309,10 @@ const actions = {
     return ok({ count: clean.length })
   },
 
-  async listConstraints (d, openid) {
-    const e = await loadEvent(d.eventId)
+  async listConstraints (d, r) {
+    const e = await store.loadEvent(db, d.eventId)
     if (e.error) return e.error
-    const forbidden = requireOrganizer(e.value, openid)
+    const forbidden = requireManage(e.value, r)
     if (forbidden) return forbidden
 
     const res = await constraints.where({ eventId: e.value._id })
@@ -394,10 +329,10 @@ const actions = {
    * 保存一次分队结果，每次存一个新版本（可对比、可回滚）。
    * 手动换人也走这里——客户端改完整个名单再提交，不另开一条改动路径。
    */
-  async saveDivision (d, openid) {
-    const t = await loadTournament(d.tournamentId)
+  async saveDivision (d, r) {
+    const t = await store.loadTournament(db, d.tournamentId)
     if (t.error) return t.error
-    const forbidden = requireOrganizer(t.value.evt, openid)
+    const forbidden = requireManage(t.value.evt, r)
     if (forbidden) return forbidden
     const tour = t.value.tournament
 
@@ -415,8 +350,8 @@ const actions = {
         { matchCount: played })
     }
 
-    const su = await loadSignups(tour.eventId)
-    // 名单基准是这场赛事的**到场名单**，不是活动的全部报名。
+    const su = await store.loadSignups(db, tour.eventId)
+    // 名单基准是这场赛事的**赛前检录名单**，不是活动的全部报名。
     const expected = (tour.attendeeIds || []).slice()
 
     const seen = {}
@@ -432,7 +367,7 @@ const actions = {
         if (expected.indexOf(id) < 0) {
           const p = su.byId[id]
           return err('UNKNOWN_PLAYER',
-            '分队名单里有不在本场到场名单中的人：' + (p ? p.name : id), { id: id })
+            '分队名单里有不在本场赛前检录名单中的人：' + (p ? p.name : id), { id: id })
         }
         if (seen[id]) {
           return err('INVALID_INPUT', su.byId[id].name + ' 被分到了多个队', { id: id })
@@ -495,13 +430,13 @@ const actions = {
    * 读取分队结果。管理身份看最新版本；参与者只能看已发布的版本，
    * 否则会在组织者还在调整时就看到中间状态。水平按身份剥离。
    */
-  async getDivision (d, openid) {
-    const t = await loadTournament(d.tournamentId)
+  async getDivision (d, r) {
+    const t = await store.loadTournament(db, d.tournamentId)
     if (t.error) return t.error
     const tour = t.value.tournament
     const evt = t.value.evt
-    const isOrganizer = roles.isOrganizer(evt, openid)
-    const seeLevel = roles.canSeeLevel(evt, openid)
+    const isOrganizer = roles.canManageEvent(r, evt)
+    const seeLevel = isOrganizer
 
     let query = divisions.where({ tournamentId: tour._id })
     if (!isOrganizer) query = divisions.where({ tournamentId: tour._id, published: true })
@@ -512,7 +447,7 @@ const actions = {
       return ok({ division: null, isOwner: isOrganizer, isOrganizer: isOrganizer })
     }
 
-    const su = await loadSignups(tour.eventId)
+    const su = await store.loadSignups(db, tour.eventId)
     const teams = (div.teams || []).map(function (team) {
       const members = (team.memberIds || []).map(function (id) {
         // 报名记录被删掉的情况下给个占位，避免整页渲染不出来。
@@ -547,10 +482,10 @@ const actions = {
     })
   },
 
-  async publish (d, openid) {
-    const t = await loadTournament(d.tournamentId)
+  async publish (d, r) {
+    const t = await store.loadTournament(db, d.tournamentId)
     if (t.error) return t.error
-    const forbidden = requireOrganizer(t.value.evt, openid)
+    const forbidden = requireManage(t.value.evt, r)
     if (forbidden) return forbidden
     const tour = t.value.tournament
 
@@ -578,10 +513,10 @@ const actions = {
     return ok({ published: true })
   },
 
-  async unpublish (d, openid) {
-    const t = await loadTournament(d.tournamentId)
+  async unpublish (d, r) {
+    const t = await store.loadTournament(db, d.tournamentId)
     if (t.error) return t.error
-    const forbidden = requireOrganizer(t.value.evt, openid)
+    const forbidden = requireManage(t.value.evt, r)
     if (forbidden) return forbidden
     const tour = t.value.tournament
 
@@ -597,10 +532,10 @@ const actions = {
     return ok({ published: false })
   },
 
-  async listDivisions (d, openid) {
-    const t = await loadTournament(d.tournamentId)
+  async listDivisions (d, r) {
+    const t = await store.loadTournament(db, d.tournamentId)
     if (t.error) return t.error
-    const forbidden = requireOrganizer(t.value.evt, openid)
+    const forbidden = requireManage(t.value.evt, r)
     if (forbidden) return forbidden
 
     const res = await divisions.where({ tournamentId: t.value.tournament._id })
@@ -629,7 +564,9 @@ exports.main = async function (event) {
   if (!handler) return err('UNKNOWN_ACTION', '未知操作：' + action)
 
   try {
-    return await handler(event.data || {}, openid)
+    // 角色只查一次，之后所有权限判定都是纯函数。
+    const r = await roles.loadRoles(db, openid)
+    return await handler(event.data || {}, r)
   } catch (e) {
     console.error('[hat-team] action=' + action, e)
     return err('INTERNAL', (e && e.message) || '服务异常，请重试')

@@ -27,6 +27,8 @@ Page({
     mvpCandidates: [],      // 败方的上场队员
     mvpSide: '',            // 'A' | 'B'，哪一方是败方
     mvpIds: [],
+    forfeitIds: [],
+    forfeitCandidates: [],
   },
 
   onLoad: function (q) {
@@ -79,8 +81,11 @@ Page({
           scoreA: String(m.scoreA),
           scoreB: String(m.scoreB),
           mvpIds: m.mvps.map(function (p) { return p._id }),
+          forfeitIds: (m.forfeits || []).map(function (p) { return p._id }),
+        }, function () {
+          that.refreshMvp()
+          that.refreshForfeits()
         })
-        that.refreshMvp()
       })
   },
 
@@ -112,7 +117,11 @@ Page({
     patch['team' + side + 'Name'] = team ? team.name : ''
     patch['roster' + side] = this.buildRoster(index, null)
     patch.mvpIds = []
-    this.setData(patch, this.refreshMvp)
+    patch.forfeitIds = []
+    this.setData(patch, function () {
+      this.refreshMvp()
+      this.refreshForfeits()
+    }.bind(this))
   },
 
   toggleMember: function (e) {
@@ -123,7 +132,40 @@ Page({
     list[i] = Object.assign({}, list[i], { checked: !list[i].checked })
     const patch = {}
     patch[key] = list
-    this.setData(patch, this.refreshMvp)
+    if (list[i].checked) patch.forfeitIds = this.data.forfeitIds.filter(function (id) { return id !== list[i]._id })
+    this.setData(patch, function () {
+      this.refreshMvp()
+      this.refreshForfeits()
+    }.bind(this))
+  },
+
+  refreshForfeits: function () {
+    const all = (this.data.rosterA || []).concat(this.data.rosterB || [])
+    const ids = this.data.forfeitIds || []
+    this.setData({
+      forfeitCandidates: all.map(function (m) {
+        return { _id: m._id, name: m.name, selected: ids.indexOf(m._id) >= 0 }
+      }),
+    })
+  },
+
+  toggleForfeit: function (e) {
+    const id = e.currentTarget.dataset.id
+    const ids = this.data.forfeitIds.slice()
+    const at = ids.indexOf(id)
+    if (at >= 0) ids.splice(at, 1)
+    else ids.push(id)
+    const patch = { forfeitIds: ids }
+    ;['A', 'B'].forEach(function (side) {
+      const key = 'roster' + side
+      patch[key] = (this.data[key] || []).map(function (m) {
+        return m._id === id ? Object.assign({}, m, { checked: false }) : m
+      })
+    }, this)
+    this.setData(patch, function () {
+      this.refreshMvp()
+      this.refreshForfeits()
+    }.bind(this))
   },
 
   selectAll: function (e) {
@@ -135,7 +177,14 @@ Page({
     })
     const patch = {}
     patch[key] = list
-    this.setData(patch, this.refreshMvp)
+    if (!all) {
+      const selected = list.filter(function (m) { return m.checked }).map(function (m) { return m._id })
+      patch.forfeitIds = this.data.forfeitIds.filter(function (id) { return selected.indexOf(id) < 0 })
+    }
+    this.setData(patch, function () {
+      this.refreshMvp()
+      this.refreshForfeits()
+    }.bind(this))
   },
 
   onScore: function (e) {
@@ -232,6 +281,7 @@ Page({
       participantsA: pa,
       participantsB: pb,
       mvpIds: d.mvpIds,
+      forfeitIds: d.forfeitIds,
     }, { loading: '保存中' })
       .then(function () {
         wx.showToast({ title: '已保存', icon: 'success' })

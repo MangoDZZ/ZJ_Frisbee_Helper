@@ -36,7 +36,7 @@ const hatAdmin = require('../cloudfunctions/hat-admin/index.js').main
 let passed = 0
 const failures = []
 
-async function test (name, fn) {
+async function test(name, fn) {
   mock.reset()
   try {
     await fn()
@@ -46,9 +46,9 @@ async function test (name, fn) {
   }
 }
 
-function ok (cond, msg) { if (!cond) throw new Error(msg || '断言失败') }
+function ok(cond, msg) { if (!cond) throw new Error(msg || '断言失败') }
 
-function eq (actual, expected, msg) {
+function eq(actual, expected, msg) {
   if (actual !== expected) {
     throw new Error((msg ? msg + '：' : '') + '期望 ' + JSON.stringify(expected) +
       '，实际 ' + JSON.stringify(actual))
@@ -59,23 +59,22 @@ function eq (actual, expected, msg) {
 
 const OWNER = 'openid-owner'
 // 必须与各云函数 lib/roles.js 里的 ADMIN_OPENIDS 一致
-const ADMIN = 'o6zAJs1Gu-uGvF8CdCYLPQJ6z4h8'
+const ADMIN = 'oKkBt3SP024_uuaA3MUik9oP43h8'
 const ALICE = 'openid-alice'
 const BOB = 'openid-bob'
-
-function as (openid, fn, action, data) {
+function as(openid, fn, action, data) {
   mock.setOpenid(openid)
   return fn({ action: action, data: data || {} })
 }
 
-async function expectOk (p, msg) {
+async function expectOk(p, msg) {
   const r = await p
   ok(r.ok, (msg || '应当成功') + '，实际：' +
     (r.error ? r.error.code + ' ' + r.error.message : '?'))
   return r.data
 }
 
-async function expectErr (p, code, msg) {
+async function expectErr(p, code, msg) {
   const r = await p
   ok(!r.ok, (msg || '应当失败') + '，但实际成功了')
   if (code) eq(r.error.code, code, msg || '错误码')
@@ -84,7 +83,7 @@ async function expectErr (p, code, msg) {
 
 const DAY = 86400000
 
-function eventForm (over) {
+function eventForm(over) {
   return Object.assign({
     name: '周六晚 HAT 局',
     location: '城市体育公园 3 号场',
@@ -97,21 +96,31 @@ function eventForm (over) {
   }, over || {})
 }
 
-function signupForm (over) {
+function signupForm(over) {
   return Object.assign({
     name: '张三', gender: 'M', selfLevel: 3, phone: '13800000000', remark: '',
   }, over || {})
 }
 
-async function createEvent (over) {
+async function createEvent(over) {
+  // 只有组织者能发起活动，所以建活动前先把 OWNER 设成组织者。
+  // 每个用例开始时 mock 会 reset，所以这里每次都设一遍。
+  grantOrganizer(OWNER)
   const d = await expectOk(as(OWNER, hatEvent, 'create', eventForm(over)), '建活动')
   return d._id
+}
+
+/** 直接往 roles 集合里写一条组织者记录（走 setOrganizer 得先有管理员，绕一圈没必要）。 */
+function grantOrganizer(openid, name) {
+  mock.insert('roles', {
+    openid: openid, role: 'organizer', name: name || '测试组织者', createTime: Date.now(),
+  })
 }
 
 // ================================================================ 活动
 
 const tests = []
-function add (name, fn) { tests.push({ name: name, fn: fn }) }
+function add(name, fn) { tests.push({ name: name, fn: fn }) }
 
 add('创建活动：写入初始状态与名额', async function () {
   const id = await createEvent()
@@ -123,6 +132,7 @@ add('创建活动：写入初始状态与名额', async function () {
 })
 
 add('创建活动：表单校验', async function () {
+  grantOrganizer(OWNER)
   await expectErr(as(OWNER, hatEvent, 'create', eventForm({ name: '  ' })),
     'INVALID_INPUT', '空名称')
   await expectErr(as(OWNER, hatEvent, 'create', eventForm({ teamCount: 1 })),
@@ -137,7 +147,7 @@ add('创建活动：表单校验', async function () {
     eventForm({ endTime: Date.now() })), 'INVALID_INPUT', '结束早于开始')
   await expectErr(as(OWNER, hatEvent, 'create',
     eventForm({ signupDeadline: Date.now() + 10 * DAY })),
-  'INVALID_INPUT', '截止晚于开始')
+    'INVALID_INPUT', '截止晚于开始')
 })
 
 add('非创建者不能改活动、不能关报名、不能删活动', async function () {
@@ -164,7 +174,7 @@ add('改人数上限时同步修正剩余名额', async function () {
   // 上限不能压到已报名人数之下
   await expectErr(as(OWNER, hatEvent, 'update',
     Object.assign({ eventId: id }, eventForm({ capacity: 0, teamCount: 4 }))),
-  'INVALID_INPUT', '上限低于已报名数')
+    'INVALID_INPUT', '上限低于已报名数')
 })
 
 add('活动不存在时返回 NOT_FOUND 而不是崩溃', async function () {
@@ -293,7 +303,7 @@ add('对照：先查后写的朴素实现会超卖（证明上面的并发测试
     capacity: 10, remaining: 10, signupCount: 0, status: 'open', ownerOpenid: OWNER,
   })
 
-  async function naiveSubmit () {
+  async function naiveSubmit() {
     const res = await db.collection('events').doc(id).get()
     if (res.data.remaining <= 0) return false
     await db.collection('events').doc(id).update({
@@ -379,7 +389,7 @@ add('参与者拿不到别人的报名信息（含手机号）', async function 
   eq(all.list[0].phone, '13800000001')
 })
 
-add('只有创建者能改水平、设约束、建赛事', async function () {
+add('非管理身份不能改水平、设约束、建赛事', async function () {
   const id = await createEvent()
   await expectOk(as(ALICE, hatSignup, 'submit', Object.assign({ eventId: id }, signupForm())))
   const sid = mock.all('signups')[0]._id
@@ -391,14 +401,14 @@ add('只有创建者能改水平、设约束、建赛事', async function () {
   await expectErr(as(ALICE, hatTeam, 'listConstraints', { eventId: id }), 'FORBIDDEN', '读约束')
   await expectErr(as(ALICE, hatTeam, 'createTournament',
     { eventId: id, name: '第 1 场', teamCount: 2, attendeeIds: [sid] }),
-  'FORBIDDEN', '建赛事')
+    'FORBIDDEN', '建赛事')
   // 分队和发布挂在赛事上，不存在的赛事会先在入参校验挡掉，
-  // 真正的权限断言放在「记分员能录战绩但不能分队」那条里。
+  // 真正的权限断言放在「组织者拥有全部管理权限」那条里。
   await expectErr(as(ALICE, hatTeam, 'saveDivision',
     { tournamentId: 'ghost', teams: [{ name: '1队', memberIds: [sid] }] }), 'NOT_FOUND')
 })
 
-add('创建者覆盖水平，有效水平随之改变；传 null 可恢复自评', async function () {
+add('管理身份覆盖水平，有效水平随之改变；传 null 可恢复自评', async function () {
   const id = await createEvent()
   await expectOk(as(ALICE, hatSignup, 'submit',
     Object.assign({ eventId: id }, signupForm({ selfLevel: 2 }))))
@@ -428,13 +438,13 @@ add('不能跨活动改别人活动里的报名记录', async function () {
   const sid = mock.all('signups')[0]._id
   await expectErr(as(OWNER, hatSignup, 'updateLevel',
     { eventId: b, signupId: sid, adminLevel: 5 }), 'FORBIDDEN',
-  '报名记录不属于该活动')
+    '报名记录不属于该活动')
 })
 
 // ================================================================ 赛事
 
 /** 建活动 + 报名 N 人，返回 { eventId, ids } */
-async function setupEvent (n, over) {
+async function setupEvent(n, over) {
   const id = await createEvent(Object.assign({ teamCount: 2, capacity: Math.max(n, 4) }, over))
   for (let i = 0; i < n; i++) {
     mock.setOpenid('player-' + i)
@@ -450,7 +460,7 @@ async function setupEvent (n, over) {
 }
 
 /** 建赛事 + 分队 + 发布，返回可直接录比赛的上下文 */
-async function setupTournament (teamSizes, opts) {
+async function setupTournament(teamSizes, opts) {
   const o = opts || {}
   const total = teamSizes.reduce(function (a, b) { return a + b }, 0)
   const ev = await setupEvent(total)
@@ -486,7 +496,7 @@ async function setupTournament (teamSizes, opts) {
   }
 }
 
-function matchData (ctx, over) {
+function matchData(ctx, over) {
   return Object.assign({
     tournamentId: ctx.tournamentId,
     teamAIndex: 0,
@@ -499,13 +509,13 @@ function matchData (ctx, over) {
   }, over || {})
 }
 
-function pointsOf (board, name) {
+function pointsOf(board, name) {
   const r = board.rows.filter(function (x) { return x.name === name })[0]
   if (!r) throw new Error('积分榜上找不到 ' + name)
   return r.points
 }
 
-add('创建赛事：到场名单必须是本活动报名的子集', async function () {
+add('创建赛事：赛前检录名单必须是本活动报名的子集', async function () {
   const ev = await setupEvent(6)
   const other = await setupEvent(2, { name: '别的活动' })
 
@@ -519,7 +529,7 @@ add('创建赛事：到场名单必须是本活动报名的子集', async functi
   }), 'UNKNOWN_PLAYER', '混入别的活动的人')
 })
 
-add('创建赛事：到场人数少于队伍数被拒', async function () {
+add('创建赛事：赛前检录人数少于队伍数被拒', async function () {
   const ev = await setupEvent(6)
   await expectErr(as(OWNER, hatTeam, 'createTournament', {
     eventId: ev.eventId, name: '第 1 场', teamCount: 4,
@@ -538,7 +548,7 @@ add('创建赛事：名称与队伍数校验', async function () {
     Object.assign({}, base, { name: 'x', teamCount: 2.5 })), 'INVALID_INPUT', '非整数')
 })
 
-add('一个活动可以开多场赛事，各自到场名单不同', async function () {
+add('一个活动可以开多场赛事，各自赛前检录名单不同', async function () {
   const ev = await setupEvent(8)
 
   const t1 = await expectOk(as(OWNER, hatTeam, 'createTournament', {
@@ -556,7 +566,7 @@ add('一个活动可以开多场赛事，各自到场名单不同', async functi
   ok(t1._id !== t2._id)
 })
 
-add('分队名单必须与本场到场名单一致', async function () {
+add('分队名单必须与本场赛前检录名单一致', async function () {
   const ev = await setupEvent(8)
   const t = await expectOk(as(OWNER, hatTeam, 'createTournament', {
     eventId: ev.eventId, name: '第 1 场', teamCount: 2, attendeeIds: ev.ids.slice(0, 4),
@@ -566,21 +576,21 @@ add('分队名单必须与本场到场名单一致', async function () {
   await expectErr(as(OWNER, hatTeam, 'saveDivision', {
     tournamentId: t._id,
     teams: [{ name: '1队', memberIds: [ev.ids[0], ev.ids[4]] },
-      { name: '2队', memberIds: [ev.ids[1], ev.ids[2]] }],
+    { name: '2队', memberIds: [ev.ids[1], ev.ids[2]] }],
   }), 'UNKNOWN_PLAYER', '没到场的人')
 
   // 漏掉一个到场的人
   await expectErr(as(OWNER, hatTeam, 'saveDivision', {
     tournamentId: t._id,
     teams: [{ name: '1队', memberIds: [ev.ids[0]] },
-      { name: '2队', memberIds: [ev.ids[1]] }],
+    { name: '2队', memberIds: [ev.ids[1]] }],
   }), 'INCOMPLETE_DIVISION')
 
   // 正确的
   await expectOk(as(OWNER, hatTeam, 'saveDivision', {
     tournamentId: t._id,
     teams: [{ name: '1队', memberIds: [ev.ids[0], ev.ids[1]] },
-      { name: '2队', memberIds: [ev.ids[2], ev.ids[3]] }],
+    { name: '2队', memberIds: [ev.ids[2], ev.ids[3]] }],
   }))
 })
 
@@ -609,7 +619,7 @@ add('删赛事连带清掉它的分队和比赛，不碰别的赛事', async fun
   eq(mock.all('divisions')[0].tournamentId, t2._id)
 })
 
-add('已录比赛后不能改到场名单、不能重新分队', async function () {
+add('已录比赛后不能改赛前检录名单、不能重新分队', async function () {
   const ctx = await setupTournament([2, 2])
   await expectOk(as(OWNER, hatMatch, 'saveMatch', matchData(ctx)))
 
@@ -642,83 +652,236 @@ add('删除活动会级联清掉赛事', async function () {
 
 // ================================================================ 角色
 
-add('whoami 返回当前身份', async function () {
+add('whoami 返回当前身份与能否发起活动', async function () {
   let me = await expectOk(as(ADMIN, hatAdmin, 'whoami', {}))
   eq(me.isAdmin, true)
-  eq(me.isScorer, true, '管理员天然能录战绩')
+  eq(me.isOrganizer, false, '管理员不是靠组织者记录认的')
+  eq(me.canCreateEvent, true)
 
   me = await expectOk(as('nobody', hatAdmin, 'whoami', {}))
   eq(me.isAdmin, false)
-  eq(me.isScorer, false)
+  eq(me.isOrganizer, false)
+  eq(me.canCreateEvent, false, '一般用户不能发起活动')
+
+  grantOrganizer(ALICE)
+  me = await expectOk(as(ALICE, hatAdmin, 'whoami', {}))
+  eq(me.isOrganizer, true)
+  eq(me.canCreateEvent, true)
 })
 
-add('只有管理员能管理记分员', async function () {
-  await expectErr(as(OWNER, hatAdmin, 'listUsers', {}), 'FORBIDDEN', '组织者也不行')
-  await expectErr(as(ALICE, hatAdmin, 'listUsers', {}), 'FORBIDDEN')
-  await expectErr(as(ALICE, hatAdmin, 'setScorer',
-    { openid: ALICE, isScorer: true }), 'FORBIDDEN', '不能自封')
-  await expectErr(as(ALICE, hatAdmin, 'listScorers', {}), 'FORBIDDEN')
+add('一般用户不能发起活动，组织者可以', async function () {
+  // 只报名过的人不能建活动
+  await expectErr(as(ALICE, hatEvent, 'create', eventForm()), 'FORBIDDEN', '一般用户建活动')
+  await expectErr(as(BOB, hatEvent, 'create', eventForm()), 'FORBIDDEN', '没报过名的人')
+
+  // 管理员天然可以
+  await expectOk(as(ADMIN, hatEvent, 'create', eventForm({ name: '管理员建的' })))
+
+  // 组织者可以
+  grantOrganizer(ALICE)
+  await expectOk(as(ALICE, hatEvent, 'create', eventForm({ name: '组织者建的' })))
+})
+
+add('只有管理员能管理组织者', async function () {
+  await expectErr(as(ALICE, hatAdmin, 'listUsers', {}), 'FORBIDDEN', '一般用户看不了名单')
+  await expectErr(as(ALICE, hatAdmin, 'setOrganizer',
+    { openid: ALICE, isOrganizer: true }), 'FORBIDDEN', '不能自封')
+  await expectErr(as(ALICE, hatAdmin, 'listOrganizers', {}), 'FORBIDDEN')
+
+  // 组织者可以看名单（要指派得先在人堆里找到人），但不能改
+  grantOrganizer(OWNER)
+  await expectOk(as(OWNER, hatAdmin, 'listUsers', {}), '组织者可以看名单')
+  await expectErr(as(OWNER, hatAdmin, 'setOrganizer',
+    { openid: ALICE, isOrganizer: true }), 'FORBIDDEN', '组织者不能改组织者')
 
   await expectOk(as(ADMIN, hatAdmin, 'listUsers', {}))
 })
 
-add('管理员指定记分员，名单来自报过名的人', async function () {
+add('管理员指定组织者，名单来自报过名的人', async function () {
   const ev = await setupEvent(3)
 
   const users = await expectOk(as(ADMIN, hatAdmin, 'listUsers', {}))
   eq(users.list.length, 3, '三个报过名的人')
-  ok(users.list.every(function (u) { return !u.isScorer }), '默认都不是记分员')
+  ok(users.list.every(function (u) { return !u.isOrganizer }), '默认都不是组织者')
 
   const target = users.list[0]
-  await expectOk(as(ADMIN, hatAdmin, 'setScorer', {
-    openid: target.openid, name: target.name, isScorer: true,
+  await expectOk(as(ADMIN, hatAdmin, 'setOrganizer', {
+    openid: target.openid, name: target.name, isOrganizer: true,
   }))
 
   const after = await expectOk(as(ADMIN, hatAdmin, 'listUsers', {}))
   const updated = after.list.filter(function (u) { return u.openid === target.openid })[0]
-  eq(updated.isScorer, true)
+  eq(updated.isOrganizer, true)
 
-  const scorers = await expectOk(as(ADMIN, hatAdmin, 'listScorers', {}))
-  eq(scorers.list.length, 1)
-  eq(scorers.list[0].openid, target.openid)
+  const orgs = await expectOk(as(ADMIN, hatAdmin, 'listOrganizers', {}))
+  eq(orgs.list.length, 2, 'OWNER 建活动时已是组织者，加上刚指定的这个')
+  ok(orgs.list.some(function (x) { return x.openid === target.openid }))
 
   // 取消
-  await expectOk(as(ADMIN, hatAdmin, 'setScorer', {
-    openid: target.openid, isScorer: false,
+  await expectOk(as(ADMIN, hatAdmin, 'setOrganizer', {
+    openid: target.openid, isOrganizer: false,
   }))
-  eq((await expectOk(as(ADMIN, hatAdmin, 'listScorers', {}))).list.length, 0)
+  const left = await expectOk(as(ADMIN, hatAdmin, 'listOrganizers', {}))
+  eq(left.list.length, 1)
+  ok(!left.list.some(function (x) { return x.openid === target.openid }))
   ok(ev.eventId)
 })
 
-add('记分员能录战绩，但不能建赛事、分队、改水平', async function () {
+add('组织者拥有全部管理权限，但不能管理组织者', async function () {
   const ctx = await setupTournament([2, 2])
-  const scorer = 'player-0'
-  await expectOk(as(ADMIN, hatAdmin, 'setScorer', { openid: scorer, isScorer: true }))
+  const org = 'player-0'
+  await expectOk(as(ADMIN, hatAdmin, 'setOrganizer', { openid: org, isOrganizer: true }))
 
   // 能录
-  await expectOk(as(scorer, hatMatch, 'saveMatch', matchData(ctx)), '记分员录战绩')
-  const list = await expectOk(as(scorer, hatMatch, 'listMatches',
+  await expectOk(as(org, hatMatch, 'saveMatch', matchData(ctx)), '组织者录战绩')
+  const list = await expectOk(as(org, hatMatch, 'listMatches',
     { tournamentId: ctx.tournamentId }))
   eq(list.canScore, true)
-  await expectOk(as(scorer, hatMatch, 'removeMatch', {
+  await expectOk(as(org, hatMatch, 'removeMatch', {
     tournamentId: ctx.tournamentId, matchId: list.list[0]._id,
-  }), '记分员删战绩')
+  }), '组织者删战绩')
 
-  // 不能做组织者的事
-  await expectErr(as(scorer, hatTeam, 'createTournament', {
+  // 可以做活动、赛事、分队和名单管理
+  await expectOk(as(org, hatTeam, 'createTournament', {
     eventId: ctx.eventId, name: 'x', teamCount: 2, attendeeIds: ctx.ids,
-  }), 'FORBIDDEN', '建赛事')
-  await expectErr(as(scorer, hatTeam, 'saveDivision', {
+  }), '组织者建赛事')
+  await expectOk(as(org, hatTeam, 'saveDivision', {
     tournamentId: ctx.tournamentId, teams: ctx.teams,
-  }), 'FORBIDDEN', '分队')
-  await expectErr(as(scorer, hatTeam, 'removeTournament',
-    { tournamentId: ctx.tournamentId }), 'FORBIDDEN', '删赛事')
-  await expectErr(as(scorer, hatSignup, 'updateLevel', {
+  }), '组织者分队')
+  await expectOk(as(org, hatSignup, 'updateLevel', {
     eventId: ctx.eventId, signupId: ctx.ids[0], adminLevel: 5,
-  }), 'FORBIDDEN', '改水平')
-  await expectErr(as(scorer, hatSignup, 'listAll',
-    { eventId: ctx.eventId }), 'FORBIDDEN', '看名单')
-  await expectErr(as(scorer, hatAdmin, 'listUsers', {}), 'FORBIDDEN', '管角色')
+  }), '组织者改水平')
+  await expectOk(as(org, hatSignup, 'listAll', { eventId: ctx.eventId }), '组织者看名单')
+  await expectOk(as(org, hatAdmin, 'listUsers', {}), '组织者查看用户')
+  await expectErr(as(org, hatAdmin, 'setOrganizer',
+    { openid: 'player-1', isOrganizer: true }), 'FORBIDDEN', '组织者不能添加组织者')
+})
+
+add('移交管理员：权限真的转走，不是再复制一份', async function () {
+  const ev = await setupEvent(2)
+  const target = (await expectOk(as(ADMIN, hatAdmin, 'listUsers', {}))).list[0]
+
+  const res = await expectOk(as(ADMIN, hatAdmin, 'transferAdmin', {
+    openid: target.openid, name: target.name,
+  }), '移交')
+  eq(res.openid, target.openid)
+
+  // 新人拿到全部管理员权限
+  let me = await expectOk(as(target.openid, hatAdmin, 'whoami', {}))
+  eq(me.isAdmin, true, '新管理员')
+  eq(me.canCreateEvent, true)
+  const users = await expectOk(as(target.openid, hatAdmin, 'listUsers', {}))
+  eq(users.canEditRoles, true, '新管理员可以改角色')
+  await expectOk(as(target.openid, hatAdmin, 'setOrganizer', {
+    openid: ALICE, isOrganizer: true,
+  }), '新管理员可以指定组织者')
+
+  // 老管理员（写死在 roles.js 里的那个）不再是管理员
+  me = await expectOk(as(ADMIN, hatAdmin, 'whoami', {}))
+  eq(me.isAdmin, false, '移交之后初始管理员应失效')
+  eq(me.canCreateEvent, false)
+  await expectErr(as(ADMIN, hatAdmin, 'listUsers', {}), 'FORBIDDEN')
+  await expectErr(as(ADMIN, hatAdmin, 'transferAdmin', {
+    openid: ALICE,
+  }), 'FORBIDDEN', '已经交出去了就不能再交')
+
+  const admins = await expectOk(as(target.openid, hatAdmin, 'listUsers', {}))
+  eq(admins.adminOpenids.length, 1, '同一时间只有一个管理员')
+  eq(admins.adminOpenids[0], target.openid)
+  ok(ev.eventId)
+})
+
+add('移交管理员：目标是测试数据或没报过名的人时拒绝', async function () {
+  await expectErr(as(ADMIN, hatAdmin, 'transferAdmin', {
+    openid: 'ghost-openid',
+  }), 'NOT_FOUND', '没报过名')
+  await expectErr(as(ADMIN, hatAdmin, 'transferAdmin', {
+    openid: ADMIN,
+  }), 'INVALID_INPUT', '不能移交给自己')
+
+  // 测试数据带 test- 前缀，没有真实微信账号
+  const id = await createEvent()
+  mock.insert('signups', {
+    eventId: id, openid: 'test-abc-0', name: '测试甲', gender: 'M',
+    selfLevel: 3, status: 'signed', isTest: true, createTime: Date.now(),
+  })
+  await expectErr(as(ADMIN, hatAdmin, 'transferAdmin', {
+    openid: 'test-abc-0',
+  }), 'NOT_FOUND', '测试数据不能当管理员')
+
+  // 失败时不能把管理员搞丢
+  eq((await expectOk(as(ADMIN, hatAdmin, 'whoami', {}))).isAdmin, true)
+})
+
+add('老数据里的 scorer 记录仍按组织者对待', async function () {
+  const ctx = await setupTournament([2, 2])
+  // 合并前的角色名，升级后不该凭空掉权限
+  mock.insert('roles', {
+    openid: 'player-0', role: 'scorer', name: '老记分员', createTime: Date.now(),
+  })
+
+  const me = await expectOk(as('player-0', hatAdmin, 'whoami', {}))
+  eq(me.isOrganizer, true, '老记录要认')
+  await expectOk(as('player-0', hatMatch, 'saveMatch', matchData(ctx)), '老记分员录战绩')
+
+  // 取消时把老记录一并清掉，否则"取消"看起来没生效
+  await expectOk(as(ADMIN, hatAdmin, 'setOrganizer', {
+    openid: 'player-0', isOrganizer: false,
+  }))
+  eq((await expectOk(as('player-0', hatAdmin, 'whoami', {}))).isOrganizer, false)
+})
+
+add('组织者身份被取消后，自己建的活动仍归他管', async function () {
+  const ctx = await setupTournament([2, 2])
+  // OWNER 是活动创建者，也是组织者；把组织者身份撤掉
+  await expectOk(as(ADMIN, hatAdmin, 'setOrganizer', { openid: OWNER, isOrganizer: false }))
+  eq((await expectOk(as(OWNER, hatAdmin, 'whoami', {}))).isOrganizer, false)
+
+  // 创建者这条兜底路径还在，否则这些活动就没人能管了
+  await expectOk(as(OWNER, hatSignup, 'listAll', { eventId: ctx.eventId }), '创建者看名单')
+  await expectOk(as(OWNER, hatEvent, 'update',
+    Object.assign({ eventId: ctx.eventId }, eventForm())), '创建者改活动')
+  await expectErr(as(OWNER, hatEvent, 'create', eventForm({ name: '不该能建' })),
+    'FORBIDDEN', '但不能再发起新活动')
+})
+
+add('活动列表区分"我创建的"和"我能管的"', async function () {
+  const mine = await createEvent({ name: '我建的' })
+  const other = await setupEvent(2, { name: '别人建的' })
+
+  // 组织者能管所有活动，但这些活动不是他创建的
+  const org = 'player-0'
+  await expectOk(as(ADMIN, hatAdmin, 'setOrganizer', { openid: org, isOrganizer: true }))
+
+  function pick (list, id) {
+    return list.filter(function (e) { return e._id === id })[0]
+  }
+
+  const orgList = (await expectOk(as(org, hatEvent, 'list', {}))).list
+  eq(pick(orgList, mine).canManage, true)
+  eq(pick(orgList, mine).isOwner, false, '能管不等于我创建的')
+  eq(pick(orgList, other.eventId).canManage, true)
+  eq(pick(orgList, other.eventId).isOwner, false)
+
+  // 创建者自己两个都是 true
+  const ownList = (await expectOk(as(OWNER, hatEvent, 'list', {}))).list
+  eq(pick(ownList, mine).isOwner, true)
+  eq(pick(ownList, mine).canManage, true)
+
+  // 一般用户两个都是 false
+  const plainList = (await expectOk(as('player-1', hatEvent, 'list', {}))).list
+  eq(pick(plainList, mine).isOwner, false)
+  eq(pick(plainList, mine).canManage, false)
+
+  // 详情同理：管理台入口看 canManage
+  const d = await expectOk(as(org, hatEvent, 'detail', { eventId: mine }))
+  eq(d.canManage, true)
+  eq(d.isOwner, false)
+  const d2 = await expectOk(as(OWNER, hatEvent, 'detail', { eventId: mine }))
+  eq(d2.canManage, true)
+  eq(d2.isOwner, true)
+  const d3 = await expectOk(as('player-1', hatEvent, 'detail', { eventId: mine }))
+  eq(d3.canManage, false)
 })
 
 add('普通参与者不能录战绩', async function () {
@@ -790,19 +953,18 @@ add('组织者和管理员仍然看得到水平', async function () {
 
   const tour = await expectOk(as(OWNER, hatTeam, 'getTournament',
     { tournamentId: ctx.tournamentId }))
-  ok(typeof tour.attendees[0].level === 'number', '组织者应看到到场名单的水平')
+  ok(typeof tour.attendees[0].level === 'number', '组织者应看到赛前检录名单的水平')
 })
 
-add('记分员也看不到水平——他只需要名字', async function () {
+add('组织者拥有管理权限并可以看到水平', async function () {
   const ctx = await setupTournament([2, 2])
-  const scorer = 'player-0'
-  await expectOk(as(ADMIN, hatAdmin, 'setScorer', { openid: scorer, isScorer: true }))
+  const org = 'player-0'
+  await expectOk(as(ADMIN, hatAdmin, 'setOrganizer', { openid: org, isOrganizer: true }))
 
-  const div = await expectOk(as(scorer, hatTeam, 'getDivision',
+  const div = await expectOk(as(org, hatTeam, 'getDivision',
     { tournamentId: ctx.tournamentId }))
-  eq(div.canSeeLevel, false)
-  ok(JSON.stringify(div).indexOf('level') < 0, '记分员也不该看到 level')
-  // 但名字要有，否则没法录战绩
+  eq(div.canSeeLevel, true)
+  ok(JSON.stringify(div).indexOf('level') >= 0, '组织者应看到管理所需的 level')
   ok(div.division.teams[0].members[0].name.length > 0)
 })
 
@@ -828,7 +990,7 @@ add('分队未发布时不能录比赛', async function () {
   await expectOk(as(OWNER, hatTeam, 'saveDivision', {
     tournamentId: t._id,
     teams: [{ name: '1队', memberIds: [ev.ids[0], ev.ids[1]] },
-      { name: '2队', memberIds: [ev.ids[2], ev.ids[3]] }],
+    { name: '2队', memberIds: [ev.ids[2], ev.ids[3]] }],
   }))
   await expectErr(as(OWNER, hatMatch, 'saveMatch', {
     tournamentId: t._id, teamAIndex: 0, teamBIndex: 1, scoreA: 15, scoreB: 10,
@@ -849,6 +1011,21 @@ add('录入一场比赛并按规则计分', async function () {
   eq(pointsOf(board, '球员3'), 2, '败方 1 分 + MVP 1 分')
   eq(pointsOf(board, '球员5'), 1)
   eq(board.rules.win, 3)
+})
+
+add('录入弃赛人员：扣 3 分且不能同时上场', async function () {
+  const ctx = await setupTournament([3, 3])
+  await expectOk(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+    participantsA: ctx.teams[0].memberIds.slice(0, 2),
+    participantsB: ctx.teams[1].memberIds.slice(0, 2),
+    forfeitIds: [ctx.teams[0].memberIds[2]],
+  })))
+  const board = await expectOk(as(OWNER, hatMatch, 'leaderboard', { eventId: ctx.eventId }))
+  eq(pointsOf(board, '球员2'), -3)
+  eq(board.rows.filter(function (r) { return r.name === '球员2' })[0].forfeitCount, 1)
+  await expectErr(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+    forfeitIds: [ctx.teams[0].memberIds[0]],
+  })), 'INVALID_FORFEIT')
 })
 
 add('未上场的人不得分', async function () {
@@ -996,7 +1173,7 @@ add('端到端：一个活动两场赛事，积分汇总与手算一致', async 
   const d1 = await expectOk(as(OWNER, hatTeam, 'saveDivision', {
     tournamentId: t1._id,
     teams: [{ name: 'A队', memberIds: [id[0], id[1], id[2]] },
-      { name: 'B队', memberIds: [id[3], id[4], id[5]] }],
+    { name: 'B队', memberIds: [id[3], id[4], id[5]] }],
   }))
   await expectOk(as(OWNER, hatTeam, 'publish', { tournamentId: t1._id, divisionId: d1._id }))
   // A 队 15:10 胜，MVP 给 B 队前两人
@@ -1014,7 +1191,7 @@ add('端到端：一个活动两场赛事，积分汇总与手算一致', async 
   const d2 = await expectOk(as(OWNER, hatTeam, 'saveDivision', {
     tournamentId: t2._id,
     teams: [{ name: 'C队', memberIds: [id[0], id[3]] },
-      { name: 'D队', memberIds: [id[1], id[4]] }],
+    { name: 'D队', memberIds: [id[1], id[4]] }],
   }))
   await expectOk(as(OWNER, hatTeam, 'publish', { tournamentId: t2._id, divisionId: d2._id }))
   // D 队 15:12 胜，MVP 给 C 队的球员0
@@ -1230,24 +1407,24 @@ add('端到端：用测试数据完成一次分队', async function () {
   }), '测试数据的分队结果应能通过云端校验')
 })
 
-// ---------------------------------------------------------------- 运行
+  // ---------------------------------------------------------------- 运行
 
-;(async function run () {
-  for (let i = 0; i < tests.length; i++) {
-    await test(tests[i].name, tests[i].fn)
-  }
-  console.log('')
-  if (failures.length === 0) {
-    console.log('全部通过：' + passed + ' 个用例')
-    process.exit(0)
-  } else {
-    console.log('通过 ' + passed + ' 个，失败 ' + failures.length + ' 个：')
-    console.log('')
-    for (let i = 0; i < failures.length; i++) {
-      console.log('  ✗ ' + failures[i].name)
-      console.log('    ' + failures[i].message)
+  ; (async function run() {
+    for (let i = 0; i < tests.length; i++) {
+      await test(tests[i].name, tests[i].fn)
     }
     console.log('')
-    process.exit(1)
-  }
-})()
+    if (failures.length === 0) {
+      console.log('全部通过：' + passed + ' 个用例')
+      process.exit(0)
+    } else {
+      console.log('通过 ' + passed + ' 个，失败 ' + failures.length + ' 个：')
+      console.log('')
+      for (let i = 0; i < failures.length; i++) {
+        console.log('  ✗ ' + failures[i].name)
+        console.log('    ' + failures[i].message)
+      }
+      console.log('')
+      process.exit(1)
+    }
+  })()

@@ -36,6 +36,10 @@
         <text class="tag tag-mvp">本场 MVP</text>
         <text>{{item.mvpText}}</text>
       </view>
+      <view wx:if="{{item.forfeitText}}" class="mvp-line">
+        <text class="tag tag-full">弃赛 -3</text>
+        <text>{{item.forfeitText}}</text>
+      </view>
     </view>
 
     <view wx:if="{{list.length === 0}}" class="empty">

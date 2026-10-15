@@ -4,6 +4,7 @@
   "description": "飞盘 HAT 助手云函数",
   "main": "index.js",
   "dependencies": {
-    "wx-server-sdk": "~4.0.2"
+    "wx-server-sdk": "~4.0.2",
+    "xlsx": "^0.18.5"
   }
 }

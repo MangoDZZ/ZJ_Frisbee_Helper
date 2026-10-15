@@ -42,3 +42,8 @@
   background: #d99b1c;
   color: #fff;
 }
+
+.option-forfeit {
+  background: #b4322c;
+  color: #fff;
+}
