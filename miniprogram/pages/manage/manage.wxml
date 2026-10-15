@@ -10,6 +10,9 @@
         <text class="tag tag-{{event.status}}">{{statusText}}</text>
       </view>
       <view class="card-meta">{{summary}} · 上限 {{event.capacity}} 人 · 分 {{event.teamCount}} 队</view>
+      <view wx:if="{{!isOwner}}" class="field-hint gap">
+        这场活动不是你创建的，你以组织者或管理员身份管理它。
+      </view>
 
       <view class="bars gap">
         <view wx:for="{{levelBars}}" wx:key="level" class="bar-row">

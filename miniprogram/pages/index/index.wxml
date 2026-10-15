@@ -25,6 +25,12 @@
         <text wx:if="{{item.isOwner}}" class="tag">我创建</text>
         <text wx:if="{{item.hintText}}" class="tag tag-full">{{item.hintText}}</text>
       </view>
+      <!-- 组织者和管理员能管所有活动，这里给一条直达管理台的入口。
+           卡片本身有 bindtap="openEvent"，所以必须用 catchtap 挡掉冒泡。 -->
+      <view wx:if="{{item.canManage}}" class="gap">
+        <button class="btn btn-plain btn-sm" data-id="{{item._id}}"
+                catchtap="goManage">进入管理台</button>
+      </view>
     </view>
   </block>
 

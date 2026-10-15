@@ -12,6 +12,7 @@ Page({
     failMessage: '',
     event: null,
     statusText: '',
+    isOwner: false,
     roster: [],
     constraints: [],
     summary: '',
@@ -45,10 +46,15 @@ Page({
     const that = this
     return api.event('detail', { eventId: this.data.eventId }, { loading: false, toastError: false })
       .then(function (d) {
-        that.setData({ event: d.event, statusText: fmt.statusText(d.event.status) })
-        if (!d.isOwner) {
-          // 正常不会走到这（入口只对创建者显示），但直接改 URL 也进不来。
-          that.setData({ loading: false, failMessage: '只有活动创建者可以打开管理台' })
+        that.setData({
+          event: d.event,
+          statusText: fmt.statusText(d.event.status),
+          isOwner: !!d.isOwner,
+        })
+        if (!d.canManage) {
+          // 组织者和管理员对**所有**活动都有管理权，所以这里挡的其实是"一般用户
+          // 直接改 URL 进来"。真正的拦截在云函数里，这里只是别让页面渲染成空的。
+          that.setData({ loading: false, failMessage: '你没有这场活动的管理权限' })
           return null
         }
         return Promise.all([

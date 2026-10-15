@@ -50,6 +50,6 @@
 
 <view wx:if="{{!loading && !failMessage}}" class="footer-bar">
   <button class="btn btn-plain" bindtap="goTournaments">赛事列表</button>
-  <button class="btn btn-ghost" bindtap="goStats">得分助攻榜</button>
-  <button class="btn" open-type="share">分享积分榜</button>
+  <button class="btn btn-ghost" bindtap="goStats">查看数据</button>
+  <button class="btn" open-type="share">分享</button>
 </view>

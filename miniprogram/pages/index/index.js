@@ -49,6 +49,10 @@ Page({
     wx.navigateTo({ url: '/pages/event-detail/event-detail?id=' + e.currentTarget.dataset.id })
   },
 
+  goManage: function (e) {
+    wx.navigateTo({ url: '/pages/manage/manage?eventId=' + e.currentTarget.dataset.id })
+  },
+
   createEvent: function () {
     wx.navigateTo({ url: '/pages/event-edit/event-edit' })
   },

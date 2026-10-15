@@ -757,6 +757,33 @@ add('组织者拥有全部管理权限，但不能管理组织者', async functi
     { openid: 'player-1', isOrganizer: true }), 'FORBIDDEN', '组织者不能添加组织者')
 })
 
+add('管理台：组织者和管理员能打开不是自己创建的活动', async function () {
+  // 活动是 OWNER 建的，org 不是创建者
+  const ctx = await setupTournament([2, 2])
+  const org = 'player-0'
+  await expectOk(as(ADMIN, hatAdmin, 'setOrganizer', { openid: org, isOrganizer: true }))
+
+  // manage 页打开时会调这几个接口，任何一个被拒都会让管理台打不开
+  const detail = await expectOk(as(org, hatEvent, 'detail', { eventId: ctx.eventId }))
+  eq(detail.canManage, true, '管理台入口看 canManage')
+  eq(detail.isOwner, false, '他不是创建者')
+  await expectOk(as(org, hatSignup, 'listAll', { eventId: ctx.eventId }), '读名单')
+  await expectOk(as(org, hatTeam, 'listConstraints', { eventId: ctx.eventId }), '读约束')
+  eq((await expectOk(as(org, hatAdmin, 'whoami', {}))).isOrganizer, true)
+
+  // 管理员同理
+  const adminDetail = await expectOk(as(ADMIN, hatEvent, 'detail', { eventId: ctx.eventId }))
+  eq(adminDetail.canManage, true)
+  eq(adminDetail.isOwner, false)
+  await expectOk(as(ADMIN, hatSignup, 'listAll', { eventId: ctx.eventId }))
+
+  // 既没角色也不是创建者的人打不开（管理台里的接口照样拦得住）
+  eq((await expectOk(as('player-1', hatEvent, 'detail', { eventId: ctx.eventId }))).canManage,
+    false, '一般用户没有管理权')
+  await expectErr(as('player-1', hatSignup, 'listAll', { eventId: ctx.eventId }),
+    'FORBIDDEN', '一般用户读不到名单')
+})
+
 add('移交管理员：权限真的转走，不是再复制一份', async function () {
   const ev = await setupEvent(2)
   const target = (await expectOk(as(ADMIN, hatAdmin, 'listUsers', {}))).list[0]
