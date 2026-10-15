@@ -462,6 +462,134 @@ add('不能跨活动改别人活动里的报名记录', async function () {
     '报名记录不属于该活动')
 })
 
+// ================================================================ 删除报名
+
+add('删除报名：记录消失且名额归还', async function () {
+  const ev = await setupEvent(3)
+  const doc0 = mock.get('events', ev.eventId)
+  eq(doc0.signupCount, 3)
+  eq(doc0.remaining, 1, '上限 4，报了 3 人')
+
+  const d = await expectOk(as(OWNER, hatSignup, 'removeSignup',
+    { eventId: ev.eventId, signupId: ev.ids[0] }))
+  eq(d.removed, true)
+  eq(d.constraintsTouched, 0)
+  eq(mock.all('signups').length, 2, '少了一条报名')
+
+  const doc = mock.get('events', ev.eventId)
+  eq(doc.signupCount, 2)
+  eq(doc.remaining, 2, '名额要还回来')
+
+  const list = await expectOk(as(OWNER, hatSignup, 'listAll', { eventId: ev.eventId }))
+  eq(list.list.length, 2)
+  ok(list.list.every(function (s) { return s._id !== ev.ids[0] }), '被删的人不在了')
+
+  // 腾出来的名额能被别人用掉
+  await expectOk(as(ALICE, hatSignup, 'submit',
+    Object.assign({ eventId: ev.eventId }, signupForm({ name: '补位的' }))))
+  eq(mock.get('events', ev.eventId).remaining, 1)
+})
+
+add('删除报名：组织者和管理员都能删不是自己建的活动，一般用户不行', async function () {
+  const ev = await setupEvent(2)
+
+  // 一般用户（没角色、也不是创建者）
+  await expectErr(as('player-0', hatSignup, 'removeSignup',
+    { eventId: ev.eventId, signupId: ev.ids[0] }), 'FORBIDDEN', '一般用户不能删别人的报名')
+  eq(mock.all('signups').length, 2, '被拒后什么也没删')
+
+  // 组织者
+  grantOrganizer(ALICE)
+  await expectOk(as(ALICE, hatSignup, 'removeSignup',
+    { eventId: ev.eventId, signupId: ev.ids[0] }), '组织者可以删')
+  eq(mock.all('signups').length, 1)
+
+  // 管理员
+  await expectOk(as(ADMIN, hatSignup, 'removeSignup',
+    { eventId: ev.eventId, signupId: ev.ids[1] }), '管理员可以删')
+  eq(mock.all('signups').length, 0)
+  eq(mock.get('events', ev.eventId).remaining, 4, '两个名额都还回来了')
+})
+
+add('删除报名：不存在、跨活动、缺 id', async function () {
+  const a = await createEvent()
+  const b = await createEvent({ name: '另一场' })
+  await expectOk(as(ALICE, hatSignup, 'submit', Object.assign({ eventId: a }, signupForm())))
+  const sid = mock.all('signups')[0]._id
+
+  await expectErr(as(OWNER, hatSignup, 'removeSignup',
+    { eventId: a, signupId: '' }), 'INVALID_INPUT', '缺 id')
+  await expectErr(as(OWNER, hatSignup, 'removeSignup',
+    { eventId: a, signupId: 'ghost' }), 'NOT_FOUND')
+  await expectErr(as(OWNER, hatSignup, 'removeSignup',
+    { eventId: b, signupId: sid }), 'FORBIDDEN', '不属于这场活动')
+  eq(mock.all('signups').length, 1, '都没删掉')
+})
+
+add('删除报名：已被赛前检录的人不能删，且不会留下半个操作', async function () {
+  const ev = await setupEvent(4)
+  const t = await expectOk(as(OWNER, hatTeam, 'createTournament', {
+    eventId: ev.eventId, name: '第 1 场', teamCount: 2, attendeeIds: ev.ids,
+  }))
+  ok(t._id)
+
+  const err = await expectErr(as(OWNER, hatSignup, 'removeSignup',
+    { eventId: ev.eventId, signupId: ev.ids[0] }), 'SIGNUP_IN_USE', '在检录名单里')
+  ok(err.message.indexOf('第 1 场') >= 0, '错误信息要指出是哪场赛事：' + err.message)
+  eq(err.detail.tournamentIds.length, 1)
+
+  // 名额和记录都不能动
+  eq(mock.all('signups').length, 4)
+  eq(mock.get('events', ev.eventId).signupCount, 4)
+
+  // 把人移出检录名单之后就能删了
+  await expectOk(as(OWNER, hatTeam, 'updateTournament', {
+    tournamentId: t._id, name: '第 1 场', teamCount: 2, attendeeIds: ev.ids.slice(1),
+  }))
+  await expectOk(as(OWNER, hatSignup, 'removeSignup',
+    { eventId: ev.eventId, signupId: ev.ids[0] }), '移出检录后可以删')
+  eq(mock.all('signups').length, 3)
+})
+
+add('删除报名：约束里涉及他的被摘掉，不足 2 人的整条删除', async function () {
+  const ev = await setupEvent(4)
+  // 两条约束：一条只涉及两人（删一个就剩 1 人 → 整条删），一条涉及三人（摘掉后剩 2 人 → 保留）
+  await expectOk(as(OWNER, hatTeam, 'setConstraints', {
+    eventId: ev.eventId,
+    constraints: [
+      { type: 'apart', signupIds: [ev.ids[0], ev.ids[1]] },
+      { type: 'together', signupIds: [ev.ids[0], ev.ids[1], ev.ids[2]] },
+    ],
+  }))
+  eq(mock.all('constraints').length, 2)
+
+  const d = await expectOk(as(OWNER, hatSignup, 'removeSignup',
+    { eventId: ev.eventId, signupId: ev.ids[0] }))
+  eq(d.constraintsTouched, 2, '两条约束都动了')
+
+  const left = mock.all('constraints')
+  eq(left.length, 1, '只剩 1 人的那条被删掉了')
+  eq(left[0].type, 'together')
+  eq(left[0].signupIds.length, 2)
+  ok(left[0].signupIds.indexOf(ev.ids[0]) < 0, '被删的人不再出现在约束里')
+
+  // 剩下的约束仍然能正常保存/读取（不是坏数据）
+  const list = await expectOk(as(OWNER, hatTeam, 'listConstraints', { eventId: ev.eventId }))
+  eq(list.list.length, 1)
+})
+
+add('删除报名：不影响别的活动', async function () {
+  const a = await setupEvent(2)
+  const b = await setupEvent(2, { name: '别的活动' })
+
+  await expectOk(as(OWNER, hatSignup, 'removeSignup',
+    { eventId: a.eventId, signupId: a.ids[0] }))
+
+  eq(mock.get('events', a.eventId).signupCount, 1)
+  eq(mock.get('events', b.eventId).signupCount, 2, '别的活动不受影响')
+  eq((await expectOk(as(OWNER, hatSignup, 'listAll', { eventId: b.eventId }))).list.length, 2)
+})
+
 // ================================================================ 赛事
 
 /** 建活动 + 报名 N 人，返回 { eventId, ids } */

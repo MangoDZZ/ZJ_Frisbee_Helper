@@ -19,6 +19,7 @@ const db = cloud.database()
 const _ = db.command
 const events = db.collection('events')
 const signups = db.collection('signups')
+const tournaments = db.collection('tournaments')
 
 const ok = common.ok
 const err = common.err
@@ -89,6 +90,44 @@ function requireManage (evt, r) {
     return err('FORBIDDEN', '只有活动创建者、组织者或管理员可以进行此操作')
   }
   return null
+}
+
+/**
+ * 哪些赛事的**赛前检录名单**里出现了这些人。
+ *
+ * 删报名前必须为空：赛事记录的是 signupId，人删了就会留下指向不存在的人的引用，
+ * 而分队名单和比赛记录都以这份检录名单为基准。
+ */
+async function tournamentsUsing (eventId, signupIds) {
+  const list = await fetchAll(function () {
+    return tournaments.where({ eventId: eventId }).field({ name: true, attendeeIds: true })
+  }, { label: '活动赛事' })
+  return list.filter(function (t) {
+    const ids = t.attendeeIds || []
+    return ids.some(function (id) { return signupIds.indexOf(id) >= 0 })
+  })
+}
+
+/**
+ * 把这些人从活动的分队约束里摘掉；摘完不足 2 人的整条删除。
+ * 返回受影响的约束条数（调用方可以据此提示用户"约束也动了"）。
+ */
+async function stripFromConstraints (eventId, signupIds) {
+  const consCol = db.collection('constraints')
+  const cons = await fetchAll(function () {
+    return consCol.where({ eventId: eventId }).field({ signupIds: true })
+  }, { label: '活动约束' })
+
+  let touched = 0
+  for (let i = 0; i < cons.length; i++) {
+    const ids = cons[i].signupIds || []
+    const kept = ids.filter(function (id) { return signupIds.indexOf(id) < 0 })
+    if (kept.length === ids.length) continue
+    if (kept.length < 2) await consCol.doc(cons[i]._id).remove()
+    else await consCol.doc(cons[i]._id).update({ data: { signupIds: kept } })
+    touched++
+  }
+  return touched
 }
 
 function validateSignup (d) {
@@ -410,6 +449,55 @@ const actions = {
   },
 
   /**
+   * 删掉一条报名，并归还名额。仅管理身份可用。
+   *
+   * 用于"报了名但确实不该在名单里"的情况：重复报名、信息填错、临时不来的人等等。
+   * 参与者自己取消走 cancel；这里是管理端替别人删。
+   *
+   * 已经被某场赛事**赛前检录**的人不能删——先让他把那个人移出检录名单（或删掉那场赛事）：
+   * 分队名单和比赛记录都以检录名单为基准，人一删就会留下悬空引用。
+   * 约束里引用了他的，把他摘掉（剩不足 2 人的整条删除），并在返回里说明动了几条。
+   */
+  async removeSignup (d, r) {
+    const e = await store.loadEvent(db, d.eventId)
+    if (e.error) return e.error
+    const evt = e.value
+    const forbidden = requireManage(evt, r)
+    if (forbidden) return forbidden
+
+    const signupId = trimStr(d.signupId)
+    if (!signupId) return err('INVALID_INPUT', '缺少报名记录 id')
+
+    const target = await signups.doc(signupId).get().catch(function () { return null })
+    if (!target || !target.data) return err('NOT_FOUND', '报名记录不存在')
+    if (target.data.eventId !== evt._id) {
+      return err('FORBIDDEN', '该报名记录不属于这场活动')
+    }
+    const name = target.data.name
+
+    const blocking = await tournamentsUsing(evt._id, [signupId])
+    if (blocking.length > 0) {
+      return err('SIGNUP_IN_USE',
+        '「' + name + '」已经在「' +
+        blocking.map(function (t) { return t.name }).join('」「') +
+        '」的赛前检录名单里。请先把他从检录名单里去掉（或删掉那场赛事），再删除报名。',
+        { tournamentIds: blocking.map(function (t) { return t._id }) })
+    }
+
+    const constraintsTouched = await stripFromConstraints(evt._id, [signupId])
+
+    // 先删明细再归还名额，顺序反了会在并发下把名额加多。
+    const removed = await signups.doc(signupId).remove()
+    if (!removed.stats || removed.stats.removed !== 1) {
+      return err('CONFLICT', '删除失败，请重试')
+    }
+    await events.doc(evt._id).update({
+      data: { remaining: _.inc(1), signupCount: _.inc(-1) },
+    })
+    return ok({ removed: true, name: name, constraintsTouched: constraintsTouched })
+  },
+
+  /**
    * 往活动里塞一批假报名，用于人不够时测试分队。仅管理员可用。
    *
    * 假报名照常占名额：防超额靠的是 remaining 计数，测试数据若绕过它，
@@ -481,11 +569,7 @@ const actions = {
     const testIds = testRows.map(function (row) { return row._id })
     if (testIds.length === 0) return ok({ removed: 0 })
 
-    const tours = await db.collection('tournaments').where({ eventId: evt._id })
-      .limit(100).get()
-    const blocking = (tours.data || []).filter(function (t) {
-      return (t.attendeeIds || []).some(function (id) { return testIds.indexOf(id) >= 0 })
-    })
+    const blocking = await tournamentsUsing(evt._id, testIds)
     if (blocking.length > 0) {
       return err('TEST_DATA_IN_USE',
         '测试选手已经在「' + blocking.map(function (t) { return t.name }).join('」「') +
@@ -493,16 +577,7 @@ const actions = {
         { tournamentIds: blocking.map(function (t) { return t._id }) })
     }
 
-    // 约束里引用了测试选手的，把测试选手摘掉；剩不足 2 人的整条删掉。
-    const consCol = db.collection('constraints')
-    const cons = await consCol.where({ eventId: evt._id }).limit(200).get()
-    for (let i = 0; i < (cons.data || []).length; i++) {
-      const c = cons.data[i]
-      const kept = (c.signupIds || []).filter(function (id) { return testIds.indexOf(id) < 0 })
-      if (kept.length === (c.signupIds || []).length) continue
-      if (kept.length < 2) await consCol.doc(c._id).remove()
-      else await consCol.doc(c._id).update({ data: { signupIds: kept } })
-    }
+    await stripFromConstraints(evt._id, testIds)
 
     // 先删明细再归还名额，顺序反了会在并发下把名额加多。
     const removed = await removeWhere(db, 'signups', { eventId: evt._id, isTest: true })

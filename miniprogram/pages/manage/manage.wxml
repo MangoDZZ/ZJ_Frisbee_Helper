@@ -129,6 +129,8 @@
           <text class="{{item.overridden ? 'level-fixed' : ''}}">{{item.levelText}}</text>
           <text wx:if="{{item.overridden}}" class="muted small">已调整</text>
         </view>
+        <!-- 整行有 bindtap（改水平），删除必须 catchtap 才不会顺带弹出改水平 -->
+        <text class="del" data-index="{{index}}" catchtap="removeSignup">删除</text>
       </view>
     </view>
 

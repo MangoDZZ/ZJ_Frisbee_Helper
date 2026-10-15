@@ -137,6 +137,39 @@ Page({
     })
   },
 
+  // ---------------- 删除报名 ----------------
+
+  /**
+   * 删掉一条报名。用于"报了名但确实不该在名单里"（重复、填错、临时不来）。
+   * 已经被某场赛事赛前检录的人会被云函数拒绝，这里把原因先写在确认框里，
+   * 免得点了才知道。
+   */
+  removeSignup: function (e) {
+    const that = this
+    const row = this.data.roster[e.currentTarget.dataset.index]
+    wx.showModal({
+      title: '删除报名',
+      content: '把「' + row.name + '」从报名名单里删掉？名额会归还。\n' +
+        '如果他已经在某场赛事的赛前检录名单里，需要先把他移出检录（或删掉那场赛事）。',
+      confirmText: '删除',
+      confirmColor: '#b4322c',
+      success: function (r) {
+        if (!r.confirm) return
+        api.signup('removeSignup', {
+          eventId: that.data.eventId,
+          signupId: row._id,
+        }, { loading: '删除中' })
+          .then(function (d) {
+            if (d && d.constraintsTouched > 0) {
+              wx.showToast({ title: '已删除，相关约束也一并清理', icon: 'none', duration: 2500 })
+            }
+            return that.load()
+          })
+          .catch(function () {})
+      },
+    })
+  },
+
   // ---------------- 约束 ----------------
 
   startPick: function (e) {

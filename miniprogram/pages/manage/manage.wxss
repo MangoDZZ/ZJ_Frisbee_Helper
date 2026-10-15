@@ -110,6 +110,13 @@
   color: var(--theme);
   font-weight: 600;
 }
+/* 整行可点（改水平），删除按钮靠右单独放，样式与 matches 页的「删除」一致 */
+.del {
+  flex: none;
+  color: #b4322c;
+  font-size: 24rpx;
+  padding-left: 20rpx;
+}
 
 /* 测试数据卡片用虚线框，和正式功能区分开 */
 .test-card {
