@@ -1,0 +1,63 @@
+<view class="page">
+  <view wx:if="{{failMessage}}" class="banner banner-error">{{failMessage}}</view>
+  <view wx:if="{{loading}}" class="empty">加载中…</view>
+
+  <block wx:elif="{{!failMessage}}">
+    <view wx:if="{{!found}}" class="empty">
+      <view class="empty-title">你还不在这个活动的报名名单里</view>
+      <view class="small">报名之后就能在这里看到自己的得分和助攻</view>
+    </view>
+
+    <block wx:else>
+      <view class="card">
+        <view class="row-between">
+          <text class="card-title">{{me.name}}</text>
+          <text class="muted small">{{eventName}}</text>
+        </view>
+        <view class="stat-row">
+          <view class="stat-box">
+            <text class="stat-num">{{me.goals}}</text>
+            <text class="stat-label">得分</text>
+          </view>
+          <view class="stat-box">
+            <text class="stat-num">{{me.assists}}</text>
+            <text class="stat-label">助攻</text>
+          </view>
+          <view class="stat-box">
+            <text class="stat-num">{{me.total}}</text>
+            <text class="stat-label">得分 + 助攻</text>
+          </view>
+        </view>
+        <view class="field-hint">有数据的比赛 {{me.matchCount}} 场，下面是逐场明细。</view>
+      </view>
+
+      <view class="card">
+        <view class="card-title">逐场明细</view>
+
+        <view wx:if="{{matches.length > 0}}">
+          <view wx:for="{{matches}}" wx:key="matchId" class="ms-row">
+            <view class="ms-main">
+              <text class="strong">{{item.tournamentName}}{{item.teamName ? ' · ' + item.teamName : ''}}</text>
+              <view class="row gap">
+                <text class="muted small">{{item.dataText}}</text>
+                <text wx:if="{{item.noDetail}}" class="tag tag-full">无逐分明细</text>
+              </view>
+            </view>
+            <text class="ms-score">{{item.scoreText}}</text>
+          </view>
+        </view>
+
+        <view wx:else class="muted small">这个活动你还没有上过场</view>
+      </view>
+
+      <view class="card">
+        <view class="btn-bar">
+          <button class="btn btn-plain btn-sm" bindtap="goStats">得分助攻榜</button>
+          <button class="btn btn-ghost btn-sm" bindtap="goLeaderboard">个人积分榜</button>
+        </view>
+      </view>
+    </block>
+
+    <view class="footer-spacer"></view>
+  </block>
+</view>

@@ -294,6 +294,156 @@ test('分值常量就是约定的 3 / 1 / 1 / -3', function () {
   eq(score.FORFEIT, -3)
 })
 
+// ================================================================ 逐分明细（v1.0.1）
+
+/** 造一条逐分记录 */
+function pt (team, scorer, assist) {
+  return { team: team, scorer: scorer, assist: assist || null }
+}
+
+test('scoresOf：有明细时按明细条数算，没明细才退回存量比分', function () {
+  deepEq(score.scoresOf(match({
+    scoreA: 15, scoreB: 10,
+    points: [pt('A', 'a1'), pt('A', 'a1'), pt('B', 'b1')],
+  })), { a: 2, b: 1 }, '有明细时以明细为准')
+
+  deepEq(score.scoresOf(match({ scoreA: 15, scoreB: 10 })),
+    { a: 15, b: 10 }, '没明细时用存量比分')
+
+  // 空数组等同没有明细，不能算成 0:0
+  deepEq(score.scoresOf(match({ scoreA: 15, scoreB: 10, points: [] })),
+    { a: 15, b: 10 }, '空明细要退回存量比分')
+})
+
+test('hasPoints：区分"有明细"和"老比赛"', function () {
+  eq(score.hasPoints(match({ points: [pt('A', 'a1')] })), true)
+  eq(score.hasPoints(match({})), false)
+  eq(score.hasPoints(match({ points: [] })), false)
+})
+
+test('得分 / 助攻统计：只认有明细的比赛', function () {
+  const su = makeSignups(['a1', 'a2', 'b1'])
+  const res = score.computePointStats([
+    match({
+      points: [
+        pt('A', 'a1', 'a2'),   // a1 得 1 分，a2 助攻 1 次
+        pt('A', 'a2', 'a1'),   // a2 得 1 分，a1 助攻 1 次
+        pt('A', 'a1', null),   // 个人单打：a1 再得 1 分，无助攻
+        pt('B', 'b1', null),
+      ],
+    }),
+    // 没有明细的比赛：只影响积分，不进这两项统计
+    match({ scoreA: 15, scoreB: 10, participantsA: ['a1'], participantsB: ['b1'] }),
+  ], su)
+
+  eq(res.totals.matchCount, 1, '只有 1 场有明细')
+  eq(res.totals.pointCount, 4, '共 4 个得分记录')
+
+  const a1 = res.rows.filter(function (r) { return r.signupId === 'a1' })[0]
+  eq(a1.goals, 2)
+  eq(a1.assists, 1)
+  eq(a1.total, 3)
+
+  const a2 = res.rows.filter(function (r) { return r.signupId === 'a2' })[0]
+  eq(a2.goals, 1)
+  eq(a2.assists, 1)
+  eq(a2.total, 2)
+
+  const b1 = res.rows.filter(function (r) { return r.signupId === 'b1' })[0]
+  eq(b1.goals, 1)
+  eq(b1.assists, 0)
+})
+
+test('得分 / 助攻统计：没有明细时全是 0，且不含水平字段', function () {
+  const su = makeSignups(['a1', 'b1'])
+  const res = score.computePointStats([
+    match({ scoreA: 15, scoreB: 10, participantsA: ['a1'], participantsB: ['b1'] }),
+  ], su)
+
+  eq(res.totals.matchCount, 0)
+  eq(res.totals.pointCount, 0)
+  res.rows.forEach(function (r) {
+    eq(r.goals, 0)
+    eq(r.assists, 0)
+    eq(r.total, 0)
+  })
+  ok(JSON.stringify(res).indexOf('level') < 0, '榜单里不该出现 level')
+})
+
+test('得分 / 助攻统计：明细里的人不在名单里就忽略，不凭空造行', function () {
+  const su = makeSignups(['a1'])
+  const res = score.computePointStats([
+    match({ points: [pt('A', 'ghost', 'a1'), pt('A', 'a1', 'ghost')] }),
+  ], su)
+  eq(res.rows.length, 1, '不应多出幽灵行')
+  eq(res.rows[0].goals, 1)
+  eq(res.rows[0].assists, 1)
+})
+
+test('得分 / 助攻统计：排序稳定——得分优先，再助攻，最后按名字', function () {
+  const su = makeSignups(['乙', '甲', '丙'])
+  const res = score.computePointStats([
+    match({
+      points: [
+        pt('A', '丙'), pt('A', '丙'),
+        pt('A', '甲'), pt('A', '甲'),
+        pt('A', '乙', '丙'),
+      ],
+    }),
+  ], su)
+  // 丙、甲都是 2 分；丙多 1 次助攻，排前面
+  eq(res.rows[0].signupId, '丙')
+  eq(res.rows[1].signupId, '甲')
+  eq(res.rows[2].signupId, '乙')
+})
+
+test('我的数据：只算自己的得分与助攻，并给逐场明细', function () {
+  const su = makeSignups(['a1', 'a2', 'b1'])
+  const res = score.computeMyPoints([
+    match({ _id: 'm1', points: [pt('A', 'a1', 'a2'), pt('A', 'a1'), pt('B', 'b1')] }),
+    match({ _id: 'm2', points: [pt('A', 'a2', 'a1'), pt('A', 'b1')] }),
+  ], su, 'a1')
+
+  eq(res.name, 'a1')
+  eq(res.goals, 2, 'm1 里 2 分，m2 里没得分')
+  eq(res.assists, 1, 'm2 里助攻 1 次')
+  eq(res.total, 3)
+  eq(res.matchCount, 2, '两场都有数据')
+  eq(res.matches.length, 2)
+  eq(res.matches[0].matchId, 'm1')
+  eq(res.matches[0].goals, 2)
+  eq(res.matches[0].assists, 0)
+  eq(res.matches[1].goals, 0)
+  eq(res.matches[1].assists, 1)
+})
+
+test('我的数据：没有明细的比赛不出现在明细里，名单外的人返回 null', function () {
+  const su = makeSignups(['a1', 'b1'])
+  const res = score.computeMyPoints([
+    match({ _id: 'm1', scoreA: 15, scoreB: 10, participantsA: ['a1'], participantsB: ['b1'] }),
+  ], su, 'a1')
+  eq(res.matchCount, 0)
+  eq(res.matches.length, 0)
+  eq(res.goals, 0)
+
+  eq(score.computeMyPoints([], su, 'ghost'), null, '不在名单里返回 null')
+})
+
+test('逐分明细：不会把水平带进任何统计返回', function () {
+  const su = makeSignups(['a1', 'a2'])
+  const res = score.computePointStats([
+    match({ points: [pt('A', 'a1', 'a2')] }),
+  ], su)
+  const mine = score.computeMyPoints([match({ _id: 'm1', points: [pt('A', 'a1')] })], su, 'a1')
+  ok(JSON.stringify(res).indexOf('level') < 0)
+  ok(JSON.stringify(mine).indexOf('level') < 0)
+})
+
+test('上限常量存在且为正整数', function () {
+  ok(score.MAX_POINTS_PER_MATCH >= 21, '上限至少要能记满一场：' + score.MAX_POINTS_PER_MATCH)
+  eq(Math.floor(score.MAX_POINTS_PER_MATCH), score.MAX_POINTS_PER_MATCH)
+})
+
 // ---------------------------------------------------------------- 汇总
 
 console.log('')

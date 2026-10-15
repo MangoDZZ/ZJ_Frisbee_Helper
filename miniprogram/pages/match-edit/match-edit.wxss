@@ -31,6 +31,139 @@
   color: #8a9099;
 }
 
+/* ---------- 阶段指示条 ---------- */
+.stage-bar {
+  display: flex;
+  gap: 12rpx;
+  margin-bottom: 20rpx;
+}
+.stage-item {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+  padding: 16rpx 8rpx;
+  border-radius: 12rpx;
+  background: #eef0f2;
+  color: #8a9099;
+  font-size: 24rpx;
+}
+.stage-on {
+  background: var(--theme);
+  color: #fff;
+  font-weight: 600;
+}
+/* 已经走过的阶段留个浅色底，一眼能看出进行到哪一步 */
+.stage-past {
+  background: var(--theme-soft);
+  color: var(--theme-ink);
+}
+.stage-idx {
+  width: 32rpx;
+  height: 32rpx;
+  line-height: 32rpx;
+  text-align: center;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.08);
+  font-size: 20rpx;
+}
+.stage-on .stage-idx { background: rgba(255, 255, 255, 0.28); }
+
+/* ---------- 比分条 ---------- */
+.score-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24rpx;
+  padding: 24rpx;
+  margin-bottom: 20rpx;
+  background: #fff;
+  border-radius: 16rpx;
+}
+.sb-team {
+  flex: 1;
+  font-size: 26rpx;
+  color: #4b5563;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.sb-team:first-child { text-align: right; }
+.sb-team:last-child { text-align: left; }
+.sb-score {
+  flex: none;
+  font-size: 52rpx;
+  font-weight: 600;
+  letter-spacing: 4rpx;
+}
+
+/* ---------- 逐分记录：一分一列 ---------- */
+.pt-head,
+.pt-row {
+  display: flex;
+  align-items: center;
+  padding: 16rpx 0;
+  font-size: 26rpx;
+}
+.pt-head {
+  color: #8a9099;
+  font-size: 24rpx;
+  border-bottom: 2rpx solid #eef0f2;
+}
+.pt-row { border-bottom: 2rpx solid #f4f5f7; }
+.pt-row:last-child { border-bottom: none; }
+.pt-sec {
+  flex: none;
+  width: 56rpx;
+  color: #8a9099;
+}
+.pt-team {
+  flex: 1;
+  min-width: 0;
+  color: #4b5563;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.pt-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.pt-del {
+  flex: none;
+  width: 80rpx;
+  text-align: right;
+  color: #b4322c;
+  font-size: 24rpx;
+}
+
+/* ---------- 最终比分 ---------- */
+.final-score {
+  text-align: center;
+  font-size: 72rpx;
+  font-weight: 600;
+  letter-spacing: 8rpx;
+  margin: 16rpx 0 8rpx;
+}
+
+/* 得分/助攻选中态用不同颜色区分，避免混在同一片绿色里 */
+.option-goal {
+  background: #2f8f4e;
+  color: #fff;
+}
+.option-assist {
+  background: #2563a8;
+  color: #fff;
+}
+/* 不可选（已经上场的人不能记弃赛） */
+.option-off {
+  opacity: 0.45;
+}
+
 .opt-lv {
   font-size: 20rpx;
   opacity: 0.6;

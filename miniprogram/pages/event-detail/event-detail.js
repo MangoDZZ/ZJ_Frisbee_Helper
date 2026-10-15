@@ -100,6 +100,14 @@ Page({
     wx.navigateTo({ url: '/pages/leaderboard/leaderboard?eventId=' + this.data.eventId })
   },
 
+  goStats: function () {
+    wx.navigateTo({ url: '/pages/stats/stats?eventId=' + this.data.eventId })
+  },
+
+  goMyStats: function () {
+    wx.navigateTo({ url: '/pages/my-stats/my-stats?eventId=' + this.data.eventId })
+  },
+
   cancelSignup: function () {
     const that = this
     wx.showModal({

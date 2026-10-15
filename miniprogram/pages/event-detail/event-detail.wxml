@@ -32,6 +32,7 @@
       <view wx:if="{{mySignup.remark}}" class="card-meta">备注：{{mySignup.remark}}</view>
       <view class="btn-bar gap">
         <button wx:if="{{canSignup}}" class="btn btn-plain btn-sm" bindtap="goSignup">修改信息</button>
+        <button class="btn btn-ghost btn-sm" bindtap="goMyStats">我的数据</button>
         <button wx:if="{{event.status !== 'divided'}}" class="btn btn-danger btn-sm"
                 bindtap="cancelSignup">取消报名</button>
       </view>
@@ -57,6 +58,7 @@
           {{tournaments.length > 0 ? '赛事与分队' : '还没有赛事'}}
         </button>
         <button class="btn btn-plain btn-sm" bindtap="goLeaderboard">积分榜</button>
+        <button class="btn btn-plain btn-sm" bindtap="goStats">得分助攻榜</button>
       </view>
     </view>
 

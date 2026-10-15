@@ -77,6 +77,10 @@ Page({
     wx.navigateTo({ url: '/pages/event-detail/event-detail?id=' + e.currentTarget.dataset.id })
   },
 
+  openMyStats: function (e) {
+    wx.navigateTo({ url: '/pages/my-stats/my-stats?eventId=' + e.currentTarget.dataset.id })
+  },
+
   goManage: function (e) {
     wx.navigateTo({ url: '/pages/manage/manage?eventId=' + e.currentTarget.dataset.id })
   },

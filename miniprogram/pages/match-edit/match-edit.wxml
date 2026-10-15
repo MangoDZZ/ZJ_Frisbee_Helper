@@ -3,107 +3,227 @@
   <view wx:if="{{loading}}" class="empty">加载中…</view>
 
   <block wx:elif="{{!failMessage}}">
-    <!-- 选队 -->
-    <view class="card">
-      <view class="card-title">对阵队伍</view>
-
-      <view class="field gap">
-        <view class="field-label">甲方 <text class="req">*</text></view>
-        <view class="options">
-          <view wx:for="{{teams}}" wx:key="index"
-                class="option {{teamAIndex === item.index ? 'option-on' : ''}}"
-                data-side="A" data-index="{{item.index}}" bindtap="pickTeam">{{item.name}}</view>
-        </view>
-      </view>
-
-      <view class="field">
-        <view class="field-label">乙方 <text class="req">*</text></view>
-        <view class="options">
-          <view wx:for="{{teams}}" wx:key="index"
-                class="option {{teamBIndex === item.index ? 'option-on' : ''}}"
-                data-side="B" data-index="{{item.index}}" bindtap="pickTeam">{{item.name}}</view>
-        </view>
+    <!-- 阶段指示：跟着比赛进程走，当前这一步高亮 -->
+    <view class="stage-bar">
+      <view wx:for="{{stages}}" wx:key="id"
+            class="stage-item {{stage === item.id ? 'stage-on' : ''}} {{stage > item.id ? 'stage-past' : ''}}">
+        <text class="stage-idx">{{item.id}}</text>
+        <text class="stage-name">{{item.name}}</text>
       </view>
     </view>
 
-    <!-- 比分 -->
-    <view wx:if="{{teamAIndex !== null && teamBIndex !== null}}" class="card">
-      <view class="card-title">比分</view>
-      <view class="score-input-row">
-        <view class="score-col">
-          <text class="score-team">{{teamAName}}</text>
-          <input class="score-box" type="number" value="{{scoreA}}"
-                 data-field="scoreA" bindinput="onScore" placeholder="0" />
-        </view>
-        <text class="score-colon">:</text>
-        <view class="score-col">
-          <text class="score-team">{{teamBName}}</text>
-          <input class="score-box" type="number" value="{{scoreB}}"
-                 data-field="scoreB" bindinput="onScore" placeholder="0" />
-        </view>
-      </view>
-      <view wx:if="{{scoreHint}}" class="banner banner-error gap">{{scoreHint}}</view>
+    <!-- 比分条：任何阶段都看得到当前比分 -->
+    <view wx:if="{{teamAIndex !== null && teamBIndex !== null}}" class="score-banner">
+      <text class="sb-team">{{teamAName}}</text>
+      <text class="sb-score">{{scoreText}}</text>
+      <text class="sb-team">{{teamBName}}</text>
     </view>
 
-    <!-- 上场名单 -->
-    <view wx:if="{{teamAIndex !== null}}" class="card">
-      <view class="row-between">
-        <text class="card-title">{{teamAName}} 上场名单</text>
-        <text class="muted small" data-side="A" bindtap="selectAll">全选 / 全不选</text>
-      </view>
-      <view class="field-hint">默认全队上场，取消没打的人即可。未上场不计积分。</view>
-      <view class="options gap">
-        <view wx:for="{{rosterA}}" wx:key="_id"
-              class="option {{item.checked ? 'option-on' : ''}}"
-              data-side="A" data-index="{{index}}" bindtap="toggleMember">
-          {{item.name}}<text wx:if="{{canSeeLevel}}" class="opt-lv">{{item.level}}</text>
+    <!-- ==================== 阶段一：赛前检录 ==================== -->
+    <block wx:if="{{stage === STAGE_LINEUP}}">
+      <view class="card">
+        <view class="card-title">对阵队伍</view>
+
+        <view class="field gap">
+          <view class="field-label">甲方 <text class="req">*</text></view>
+          <view class="options">
+            <view wx:for="{{teams}}" wx:key="index"
+                  class="option {{teamAIndex === item.index ? 'option-on' : ''}}"
+                  data-side="A" data-index="{{item.index}}" bindtap="pickTeam">{{item.name}}</view>
+          </view>
+        </view>
+
+        <view class="field">
+          <view class="field-label">乙方 <text class="req">*</text></view>
+          <view class="options">
+            <view wx:for="{{teams}}" wx:key="index"
+                  class="option {{teamBIndex === item.index ? 'option-on' : ''}}"
+                  data-side="B" data-index="{{item.index}}" bindtap="pickTeam">{{item.name}}</view>
+          </view>
         </view>
       </view>
-    </view>
 
-    <view wx:if="{{teamBIndex !== null}}" class="card">
-      <view class="row-between">
-        <text class="card-title">{{teamBName}} 上场名单</text>
-        <text class="muted small" data-side="B" bindtap="selectAll">全选 / 全不选</text>
-      </view>
-      <view class="options gap">
-        <view wx:for="{{rosterB}}" wx:key="_id"
-              class="option {{item.checked ? 'option-on' : ''}}"
-              data-side="B" data-index="{{index}}" bindtap="toggleMember">
-          {{item.name}}<text wx:if="{{canSeeLevel}}" class="opt-lv">{{item.level}}</text>
+      <view wx:if="{{teamAIndex !== null}}" class="card">
+        <view class="row-between">
+          <text class="card-title">{{teamAName}} 检录名单</text>
+          <text class="muted small" data-side="A" bindtap="selectAll">全选 / 全不选</text>
+        </view>
+        <view class="field-hint">默认全队上场，取消这场没到的人即可。只有检录上场的人才会出场和计分。</view>
+        <view class="options gap">
+          <view wx:for="{{rosterA}}" wx:key="_id"
+                class="option {{item.checked ? 'option-on' : ''}}"
+                data-side="A" data-index="{{index}}" bindtap="toggleMember">
+            {{item.name}}<text wx:if="{{canSeeLevel}}" class="opt-lv">{{item.level}}</text>
+          </view>
         </view>
       </view>
-    </view>
 
-    <!-- 弃赛 -->
-    <view wx:if="{{teamAIndex !== null && teamBIndex !== null}}" class="card">
-      <view class="card-title">弃赛登记</view>
-      <view class="field-hint">弃赛人员本场扣 3 分，不计胜负积分；累计弃赛 2 次及以上，活动积分归零。</view>
-      <view class="options gap">
-        <view wx:for="{{forfeitCandidates}}" wx:key="_id"
-              class="option {{item.selected ? 'option-forfeit' : ''}}"
-              data-id="{{item._id}}" bindtap="toggleForfeit">{{item.name}}</view>
+      <view wx:if="{{teamBIndex !== null}}" class="card">
+        <view class="row-between">
+          <text class="card-title">{{teamBName}} 检录名单</text>
+          <text class="muted small" data-side="B" bindtap="selectAll">全选 / 全不选</text>
+        </view>
+        <view class="options gap">
+          <view wx:for="{{rosterB}}" wx:key="_id"
+                class="option {{item.checked ? 'option-on' : ''}}"
+                data-side="B" data-index="{{index}}" bindtap="toggleMember">
+            {{item.name}}<text wx:if="{{canSeeLevel}}" class="opt-lv">{{item.level}}</text>
+          </view>
+        </view>
       </view>
-    </view>
 
-    <!-- MVP -->
-    <view wx:if="{{mvpSide}}" class="card">
-      <view class="card-title">本场 MVP</view>
-      <view class="field-hint">
-        由胜方从败方的上场队员中选出 2 名，每人额外 +1 分。可以先不选，之后再补。
-      </view>
-      <view class="options gap">
-        <view wx:for="{{mvpCandidates}}" wx:key="_id"
-              class="option {{item.selected ? 'option-mvp' : ''}}"
-              data-id="{{item._id}}" bindtap="toggleMvp">{{item.name}}</view>
-      </view>
-      <view class="muted small gap">已选 {{mvpIds.length}} / 2</view>
-    </view>
+      <view class="footer-spacer"></view>
+    </block>
 
-    <view class="footer-spacer"></view>
+    <!-- ==================== 阶段二：比赛中，逐分记录 ==================== -->
+    <block wx:elif="{{stage === STAGE_LIVE}}">
+      <!-- 升级前录的比赛：只有比分没有明细，不自动迁移，让组织者显式选 -->
+      <view wx:if="{{manualScore}}" class="card">
+        <view class="card-title">这场比赛只有比分</view>
+        <view class="banner banner-warn gap">
+          这是升级前录入的比赛（{{scoreText}}），没有逐分明细，所以进不了得分助攻榜。
+          改 MVP / 弃赛请直接去「比赛结束」，比分不受影响。
+        </view>
+        <button class="btn btn-plain gap" bindtap="startDetail">改为逐分记录</button>
+      </view>
+
+      <block wx:else>
+        <view class="card">
+          <view class="row-between">
+            <text class="card-title">记一分</text>
+            <text class="muted small">{{pointsText}}</text>
+          </view>
+
+        <view class="field-hint">先选哪一队得分，再点得分队员；助攻可留空（个人单打）。</view>
+
+        <view class="field gap">
+          <view class="field-label">得分队伍</view>
+          <view class="options">
+            <view class="option {{pendingTeam === 'A' ? 'option-on' : ''}}"
+                  data-team="A" bindtap="pickPointTeam">{{teamAName}}</view>
+            <view class="option {{pendingTeam === 'B' ? 'option-on' : ''}}"
+                  data-team="B" bindtap="pickPointTeam">{{teamBName}}</view>
+          </view>
+        </view>
+
+        <block wx:if="{{pendingTeam}}">
+          <view class="field">
+            <view class="field-label">得分队员 <text class="req">*</text></view>
+            <view class="options">
+              <view wx:for="{{pendingRoster}}" wx:key="_id"
+                    class="option {{item.isScorer ? 'option-goal' : ''}}"
+                    data-id="{{item._id}}" bindtap="pickScorer">
+                {{item.name}}<text wx:if="{{canSeeLevel}}" class="opt-lv">{{item.level}}</text>
+              </view>
+            </view>
+          </view>
+
+          <view class="field">
+            <view class="field-label">助攻队员（可选）</view>
+            <view class="options">
+              <view wx:for="{{pendingRoster}}" wx:key="_id"
+                    class="option {{item.isAssist ? 'option-assist' : ''}}"
+                    data-id="{{item._id}}" bindtap="pickAssist">
+                {{item.name}}
+              </view>
+            </view>
+          </view>
+
+          <button class="btn gap" bindtap="addPoint" disabled="{{!canAddPoint}}">
+            记这一分
+          </button>
+        </block>
+      </view>
+
+      <!-- 已记录的每一分：一分一列 -->
+      <view class="card">
+        <view class="row-between">
+          <text class="card-title">逐分记录</text>
+          <text wx:if="{{points.length > 0}}" class="muted small" bindtap="undoPoint">撤销最后一分</text>
+        </view>
+
+        <view wx:if="{{points.length > 0}}" class="pt-head">
+          <text class="pt-sec">#</text>
+          <text class="pt-team">队伍</text>
+          <text class="pt-name">得分</text>
+          <text class="pt-name">助攻</text>
+          <text class="pt-del"></text>
+        </view>
+
+        <view wx:for="{{points}}" wx:key="key" class="pt-row">
+          <text class="pt-sec">{{index + 1}}</text>
+          <text class="pt-team">{{item.team === 'A' ? teamAName : teamBName}}</text>
+          <text class="pt-name">{{item.scorerName}}</text>
+          <text class="pt-name muted">{{item.assistName ? item.assistName : '—'}}</text>
+          <text class="pt-del" data-index="{{index}}" catchtap="removePoint">删除</text>
+        </view>
+
+        <view wx:if="{{points.length === 0}}" class="muted small">
+          还没有记录得分。记满整场后进入「比赛结束」即可提交。
+        </view>
+      </view>
+      </block>
+
+      <view class="footer-spacer"></view>
+    </block>
+
+    <!-- ==================== 阶段三：比赛结束 ==================== -->
+    <block wx:elif="{{stage === STAGE_DONE}}">
+      <view class="card">
+        <view class="card-title">最终比分</view>
+        <view class="final-score">{{scoreText}}</view>
+        <view class="muted small center">
+          {{teamAName}} {{scoreA}} — {{scoreB}} {{teamBName}} · {{pointsText}}
+        </view>
+        <view class="btn-bar gap">
+          <button class="btn btn-ghost btn-sm" bindtap="goLeaderboard">积分榜</button>
+          <button class="btn btn-plain btn-sm" bindtap="goStats">得分助攻榜</button>
+        </view>
+      </view>
+
+      <!-- 弃赛登记挪到这里：一场打完才知道谁最终没来 -->
+      <view class="card">
+        <view class="card-title">弃赛登记</view>
+        <view class="field-hint">
+          弃赛人员本场扣 3 分、不计胜负积分；活动内累计弃赛 2 次及以上，最终积分归零。
+          已经上场的人不会出现在候选里。
+        </view>
+        <view class="options gap">
+          <view wx:for="{{forfeitCandidates}}" wx:key="_id"
+                class="option {{item.selected ? 'option-forfeit' : ''}} {{item.selectable ? '' : 'option-off'}}"
+                data-id="{{item._id}}" bindtap="toggleForfeit">{{item.name}}</view>
+        </view>
+      </view>
+
+      <view wx:if="{{mvpSide}}" class="card">
+        <view class="card-title">本场 MVP</view>
+        <view class="field-hint">
+          由胜方从败方的上场队员中选出 2 名，每人额外 +1 分。可以先不选，之后再补。
+        </view>
+        <view class="options gap">
+          <view wx:for="{{mvpCandidates}}" wx:key="_id"
+                class="option {{item.selected ? 'option-mvp' : ''}}"
+                data-id="{{item._id}}" bindtap="toggleMvp">{{item.name}}</view>
+        </view>
+        <view class="muted small gap">已选 {{mvpIds.length}} / 2</view>
+      </view>
+
+      <view class="footer-spacer"></view>
+    </block>
   </block>
 </view>
 
 <view wx:if="{{!loading && !failMessage}}" class="footer-bar">
-  <button class="btn" bindtap="submit" disabled="{{submitting}}">保存比赛</button>
+  <button wx:if="{{stage === STAGE_LINEUP}}" class="btn" bindtap="gotoLive">开始比赛</button>
+
+  <block wx:elif="{{stage === STAGE_LIVE}}">
+    <button class="btn btn-ghost btn-sm" bindtap="backToLineup">返回检录</button>
+    <button class="btn btn-plain btn-sm" bindtap="saveLive" disabled="{{submitting}}">暂存</button>
+    <button class="btn" bindtap="gotoDone">比赛结束</button>
+  </block>
+
+  <block wx:else>
+    <button class="btn btn-ghost btn-sm" bindtap="backToLineup">返回检录</button>
+    <button class="btn" bindtap="finishAndSave" disabled="{{submitting}}">结束并保存</button>
+  </block>
 </view>

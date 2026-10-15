@@ -12,6 +12,8 @@
     "pages/matches/matches",
     "pages/match-edit/match-edit",
     "pages/leaderboard/leaderboard",
+    "pages/stats/stats",
+    "pages/my-stats/my-stats",
     "pages/admin/admin",
     "pages/my/my"
   ],

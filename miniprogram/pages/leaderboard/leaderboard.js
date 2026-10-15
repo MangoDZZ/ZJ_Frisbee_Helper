@@ -12,6 +12,7 @@ Page({
     rows: [],
     totals: null,
     tournamentCount: 0,
+    liveMatchCount: 0,
     ruleGroups: [],
   },
 
@@ -45,6 +46,7 @@ Page({
           eventName: d.eventName,
           totals: d.totals || { matchCount: 0, playedCount: 0, playerCount: 0 },
           tournamentCount: d.tournamentCount || 0,
+          liveMatchCount: d.liveMatchCount || 0,
           ruleGroups: ruleGroupsOf(d.rules),
           rows: (d.rows || []).map(function (r) {
             return Object.assign({}, r, {
@@ -68,6 +70,10 @@ Page({
 
   goTournaments: function () {
     wx.navigateTo({ url: '/pages/tournaments/tournaments?eventId=' + this.data.eventId })
+  },
+
+  goStats: function () {
+    wx.navigateTo({ url: '/pages/stats/stats?eventId=' + this.data.eventId })
   },
 })
 

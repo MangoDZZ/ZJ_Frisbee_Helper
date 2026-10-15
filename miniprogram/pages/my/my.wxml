@@ -40,6 +40,14 @@
         <view class="card-meta">{{item.timeText}}</view>
         <view wx:if="{{item.location}}" class="card-meta">{{item.location}}</view>
         <view class="card-meta">{{item.meText}}</view>
+        <view class="btn-bar gap">
+          <!-- 卡片本身有 bindtap="openEvent"，这两个按钮必须用 catchtap 挡掉冒泡，
+               否则点一次会先跳我的数据、再被父节点带着跳一次活动详情 -->
+          <button class="btn btn-ghost btn-sm" data-id="{{item.eventId}}"
+                  catchtap="openMyStats">我的数据</button>
+          <button class="btn btn-plain btn-sm" data-id="{{item.eventId}}"
+                  catchtap="openEvent">活动详情</button>
+        </view>
       </view>
     </block>
     <view wx:else class="card muted small">还没有报名任何活动</view>

@@ -19,6 +19,40 @@ const FORFEIT = -3
 /** 累计弃赛达到这个次数，最终积分归零（活动级规则）。 */
 const FORFEIT_RESET = 2
 
+/**
+ * 单场比赛最多记录多少分（得分记录条数）。正常飞盘一局到 15 分、最多 21 分，
+ * 这个上限只是兜住"客户端疯狂提交把文档撑爆"。
+ */
+const MAX_POINTS_PER_MATCH = 200
+
+/** 得分记录。没有 points 字段的是老比赛（点位明细是 v1.0.1 才加的）。 */
+function matchPoints (match) {
+  return asArray(match && match.points)
+}
+
+/** 这场比赛是否有逐分明细。没有明细的比赛只算积分，不进得分/助攻榜。 */
+function hasPoints (match) {
+  return matchPoints(match).length > 0
+}
+
+/**
+ * 比分。明细是唯一来源，但入库时已经把它折算成 scoreA/scoreB 一并存下，
+ * 所以这里优先读明细、读不到再退回存量字段——老比赛和积分推导因此都不用改。
+ */
+function scoresOf (match) {
+  const list = matchPoints(match)
+  if (list.length > 0) {
+    let a = 0
+    let b = 0
+    for (let i = 0; i < list.length; i++) {
+      if (list[i].team === 'A') a++
+      else if (list[i].team === 'B') b++
+    }
+    return { a: a, b: b }
+  }
+  return { a: match.scoreA, b: match.scoreB }
+}
+
 /** 单场比赛的胜负判定。不允许平局，录入时已挡，这里再兜一次底。 */
 function winnerOf (match) {
   if (match.scoreA > match.scoreB) return 'A'
@@ -155,6 +189,125 @@ function computeStandings (matches, signupsById) {
   }
 }
 
+/**
+ * 得分 / 助攻统计，活动级汇总。
+ *
+ * 只统计**有逐分明细**的比赛：老比赛只有比分，分不出谁得了哪一分。所以榜单上的
+ * 场次数可能小于积分榜的场次数，返回里用 matchCount / pointCount 把这个差异说清楚，
+ * 别让组织者以为"统计漏了"。
+ *
+ * @param {Array}  matches     该活动下所有赛事的比赛记录
+ * @param {object} signupsById 活动的全部报名 { [signupId]: { name, gender } }
+ */
+function computePointStats (matches, signupsById) {
+  const byId = signupsById || {}
+  const rows = []
+  const rowOf = {}
+  const ids = Object.keys(byId)
+  for (let i = 0; i < ids.length; i++) {
+    const id = ids[i]
+    const p = byId[id]
+    const row = {
+      signupId: id,
+      name: p ? p.name : '(已退出)',
+      gender: p ? p.gender : 'U',
+      goals: 0,
+      assists: 0,
+      total: 0,
+    }
+    rowOf[id] = row
+    rows.push(row)
+  }
+
+  const list = asArray(matches)
+  let matchCount = 0
+  let pointCount = 0
+  for (let m = 0; m < list.length; m++) {
+    const pts = matchPoints(list[m])
+    if (pts.length === 0) continue
+    matchCount++
+    for (let i = 0; i < pts.length; i++) {
+      pointCount++
+      const scorer = rowOf[pts[i].scorer]
+      if (scorer) {
+        scorer.goals++
+        scorer.total++
+      }
+      const assist = pts[i].assist
+      if (assist && rowOf[assist]) {
+        rowOf[assist].assists++
+        rowOf[assist].total++
+      }
+    }
+  }
+
+  // 得分优先、再助攻、最后按名字，保证同一份数据每次算出的顺序一致。
+  rows.sort(function (a, b) {
+    if (b.goals !== a.goals) return b.goals - a.goals
+    if (b.assists !== a.assists) return b.assists - a.assists
+    return a.name < b.name ? -1 : a.name > b.name ? 1 : 0
+  })
+
+  return {
+    rows: rows,
+    totals: {
+      playerCount: rows.length,
+      matchCount: matchCount,
+      pointCount: pointCount,
+    },
+  }
+}
+
+/**
+ * 某个人的得分 / 助攻，含逐场明细。给「我的数据」页用。
+ *
+ * 返回 null 表示这个 signupId 不在名单里（报名记录被删了）。
+ */
+function computeMyPoints (matches, signupsById, signupId) {
+  const p = signupsById ? signupsById[signupId] : null
+  if (!p) return null
+
+  const out = {
+    signupId: signupId,
+    name: p.name,
+    gender: p.gender,
+    goals: 0,
+    assists: 0,
+    total: 0,
+    matchCount: 0,
+    matches: [],
+  }
+
+  const list = asArray(matches)
+  for (let m = 0; m < list.length; m++) {
+    const match = list[m]
+    const pts = matchPoints(match)
+    if (pts.length === 0) continue
+
+    let goals = 0
+    let assists = 0
+    for (let i = 0; i < pts.length; i++) {
+      if (pts[i].scorer === signupId) goals++
+      if (pts[i].assist && pts[i].assist === signupId) assists++
+    }
+    if (goals === 0 && assists === 0) continue
+
+    out.goals += goals
+    out.assists += assists
+    out.matchCount++
+    out.matches.push({
+      matchId: match._id || '',
+      tournamentId: match.tournamentId || '',
+      goals: goals,
+      assists: assists,
+      scoreA: match.scoreA,
+      scoreB: match.scoreB,
+    })
+  }
+  out.total = out.goals + out.assists
+  return out
+}
+
 /** 队伍战绩。只在单场赛事内有意义，所以仍然要传该赛事的分队。 */
 function computeTeamRecords (matches, division) {
   const teams = (division && Array.isArray(division.teams)) ? division.teams : []
@@ -200,7 +353,13 @@ module.exports = {
   MVP_BONUS: MVP_BONUS,
   FORFEIT: FORFEIT,
   FORFEIT_RESET: FORFEIT_RESET,
+  MAX_POINTS_PER_MATCH: MAX_POINTS_PER_MATCH,
+  matchPoints: matchPoints,
+  hasPoints: hasPoints,
+  scoresOf: scoresOf,
   winnerOf: winnerOf,
   computeStandings: computeStandings,
+  computePointStats: computePointStats,
+  computeMyPoints: computeMyPoints,
   computeTeamRecords: computeTeamRecords,
 }

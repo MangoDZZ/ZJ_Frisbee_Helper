@@ -21,8 +21,11 @@
           data-id="{{item._id}}" bindtap="editMatch">
       <view class="row-between">
         <text class="muted small">第 {{item.seq}} 场 · {{item.timeText}}</text>
-        <text wx:if="{{isOwner}}" class="del" catchtap="removeMatch"
-              data-index="{{index}}">删除</text>
+        <view class="row">
+          <text wx:if="{{item.live}}" class="tag tag-live">进行中</text>
+          <text wx:if="{{isOwner}}" class="del" catchtap="removeMatch"
+                data-index="{{index}}">删除</text>
+        </view>
       </view>
 
       <view class="score-row">
@@ -53,5 +56,6 @@
 
 <view wx:if="{{!loading && !failMessage}}" class="footer-bar">
   <button class="btn btn-plain" bindtap="goLeaderboard">积分榜</button>
+  <button class="btn btn-ghost" bindtap="goStats">得分助攻榜</button>
   <button wx:if="{{isOwner}}" class="btn" bindtap="addMatch">记录一场比赛</button>
 </view>

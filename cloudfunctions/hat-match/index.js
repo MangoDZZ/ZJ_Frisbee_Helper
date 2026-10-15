@@ -23,6 +23,7 @@ const db = cloud.database()
 const divisions = db.collection('divisions')
 const tournaments = db.collection('tournaments')
 const matches = db.collection('matches')
+const signups = db.collection('signups')
 
 const ok = common.ok
 const err = common.err
@@ -59,6 +60,11 @@ async function loadMatchesOfEvent (eventId) {
 /**
  * 校验一场比赛的全部字段。抽出来是因为 saveMatch 新建和更新都要用，
  * 两边各写一份一定会漂移。
+ *
+ * 比分有两个来源：
+ *  - 有 points 明细时，比分由明细条数**算出来**，客户端传来的 scoreA/scoreB 一概不采信
+ *  - 没有明细时，沿用客户端手填的 scoreA/scoreB（v1.0.1 之前的老前端走这条路）
+ * 这样新旧前端都能提交，明细也不会和比分对不上。
  */
 function validateMatch (d, division) {
   const teams = division.teams || []
@@ -68,14 +74,6 @@ function validateMatch (d, division) {
   if (a === null || !teams[a]) return { error: err('INVALID_INPUT', '甲方队伍不存在') }
   if (b === null || !teams[b]) return { error: err('INVALID_INPUT', '乙方队伍不存在') }
   if (a === b) return { error: err('INVALID_INPUT', '两支队伍不能是同一队') }
-
-  const scoreA = asInt(d.scoreA)
-  const scoreB = asInt(d.scoreB)
-  if (scoreA === null || scoreA < 0) return { error: err('INVALID_INPUT', '甲方比分要是非负整数') }
-  if (scoreB === null || scoreB < 0) return { error: err('INVALID_INPUT', '乙方比分要是非负整数') }
-  if (scoreA === scoreB) {
-    return { error: err('DRAW_NOT_ALLOWED', '不允许平局，请填写分出胜负的比分') }
-  }
 
   // 上场名单必须是该队队员的子集，否则会把别队的人算进积分。
   function pickParticipants (raw, teamIndex, label) {
@@ -102,6 +100,72 @@ function validateMatch (d, division) {
   const pb = pickParticipants(d.participantsB, b, '乙方')
   if (pb.error) return pb
 
+  // ---- 比分与逐分明细 ----
+  const rawPoints = Array.isArray(d.points) ? d.points : []
+  const points = []
+  let scoreA = asInt(d.scoreA)
+  let scoreB = asInt(d.scoreB)
+
+  if (rawPoints.length > 0) {
+    if (rawPoints.length > score.MAX_POINTS_PER_MATCH) {
+      return { error: err('INVALID_INPUT', '一场最多记录 ' + score.MAX_POINTS_PER_MATCH + ' 分') }
+    }
+    for (let i = 0; i < rawPoints.length; i++) {
+      const p = rawPoints[i] || {}
+      const team = p.team === 'A' ? 'A' : p.team === 'B' ? 'B' : null
+      if (!team) {
+        return { error: err('INVALID_POINT', '第 ' + (i + 1) + ' 分的得分队伍不对') }
+      }
+      const participants = team === 'A' ? pa.value : pb.value
+      const label = team === 'A' ? '甲方' : '乙方'
+
+      const scorer = trimStr(p.scorer)
+      if (!scorer) return { error: err('INVALID_POINT', '第 ' + (i + 1) + ' 分没有填得分队员') }
+      // 得分队员必须是这一队**上过场**的人，否则会把没打的人算进数据。
+      if (participants.indexOf(scorer) < 0) {
+        return {
+          error: err('INVALID_POINT',
+            '第 ' + (i + 1) + ' 分的得分队员不在' + label + '的上场名单里', { id: scorer }),
+        }
+      }
+
+      let assist = null
+      if (p.assist !== null && p.assist !== undefined && p.assist !== '') {
+        assist = trimStr(p.assist)
+        if (participants.indexOf(assist) < 0) {
+          return {
+            error: err('INVALID_POINT',
+              '第 ' + (i + 1) + ' 分的助攻队员不在' + label + '的上场名单里', { id: assist }),
+          }
+        }
+        // 自己助攻自己不算助攻——真发生这种数据，宁可直接报错让人改。
+        if (assist === scorer) {
+          return { error: err('INVALID_POINT', '第 ' + (i + 1) + ' 分的得分和助攻不能是同一个人') }
+        }
+      }
+
+      points.push({ team: team, scorer: scorer, assist: assist })
+    }
+    scoreA = points.filter(function (p) { return p.team === 'A' }).length
+    scoreB = points.filter(function (p) { return p.team === 'B' }).length
+  } else {
+    if (scoreA === null || scoreA < 0) {
+      return { error: err('INVALID_INPUT', '甲方比分要是非负整数（或逐分记录得分明细）') }
+    }
+    if (scoreB === null || scoreB < 0) {
+      return { error: err('INVALID_INPUT', '乙方比分要是非负整数（或逐分记录得分明细）') }
+    }
+  }
+
+  if (scoreA === scoreB) {
+    return {
+      error: err('DRAW_NOT_ALLOWED',
+        rawPoints.length > 0
+          ? '当前记录是平局，请把分出胜负的每一分都记上'
+          : '不允许平局，请填写分出胜负的比分'),
+    }
+  }
+
   // 弃赛人员必须属于本场两队，且不能同时记为上场人员。
   const allowedForfeit = (teams[a].memberIds || []).concat(teams[b].memberIds || [])
   const rawForfeit = Array.isArray(d.forfeitIds) ? d.forfeitIds : []
@@ -120,6 +184,9 @@ function validateMatch (d, division) {
     }
     forfeitIds.push(id)
   }
+
+  // 注：这里不需要再检查"弃赛的人不能还得过分"。得分队员必须是上场名单里的人，
+  // 而弃赛的人按上面这条规则不可能在上场名单里，两个不变量合起来已经把这种情况排除了。
 
   // MVP 由胜方从败方的上场队员里选，所以只能落在败方且必须上过场。
   const loserParticipants = scoreA > scoreB ? pb.value : pa.value
@@ -146,12 +213,18 @@ function validateMatch (d, division) {
       teamBIndex: b,
       scoreA: scoreA,
       scoreB: scoreB,
+      points: points,
       participantsA: pa.value,
       participantsB: pb.value,
       mvpIds: mvpIds,
       forfeitIds: forfeitIds,
     },
   }
+}
+
+/** 比赛状态。老记录没有 status，按"已结束"对待——否则历史数据会从积分榜上消失。 */
+function matchStatus (v) {
+  return v === 'live' ? 'live' : 'finished'
 }
 
 /** 把一条比赛记录补上队名和人名。不带 level——球员水平不公开。 */
@@ -171,12 +244,23 @@ function decorateMatch (m, division, byId) {
     teamBName: teamB.name,
     scoreA: m.scoreA,
     scoreB: m.scoreB,
+    status: matchStatus(m.status),
+    hasPoints: score.hasPoints(m),
+    points: (m.points || []).map(function (p) {
+      return {
+        team: p.team,
+        scorer: nameOf(p.scorer),
+        assist: p.assist ? nameOf(p.assist) : null,
+      }
+    }),
     winner: score.winnerOf(m),
     participantsA: (m.participantsA || []).map(nameOf),
     participantsB: (m.participantsB || []).map(nameOf),
     mvps: (m.mvpIds || []).map(nameOf),
     forfeits: (m.forfeitIds || []).map(nameOf),
     createTime: m.createTime,
+    updateTime: m.updateTime,
+    createdBy: m.createdBy || '',
   }
 }
 
@@ -205,6 +289,10 @@ const actions = {
     const v = validateMatch(d, division)
     if (v.error) return v.error
 
+    // 比赛状态：赛中就存成 live，结束时存 finished。老前端不传，按 finished 处理。
+    const status = matchStatus(d.status)
+    const patch = Object.assign({}, v.value, { status: status })
+
     const matchId = trimStr(d.matchId)
     const now = Date.now()
 
@@ -215,9 +303,9 @@ const actions = {
         return err('FORBIDDEN', '该比赛记录不属于这场赛事')
       }
       await matches.doc(matchId).update({
-        data: Object.assign({}, v.value, { updateTime: now }),
+        data: Object.assign({}, patch, { updateTime: now }),
       })
-      return ok({ _id: matchId, updated: true })
+      return ok({ _id: matchId, updated: true, status: status })
     }
 
     const existing = await matches.where({ tournamentId: tour._id }).count()
@@ -226,7 +314,7 @@ const actions = {
     }
 
     const res = await matches.add({
-      data: Object.assign({}, v.value, {
+      data: Object.assign({}, patch, {
         tournamentId: tour._id,
         // 冗余存一份 eventId，汇总积分榜要按活动一次查出所有比赛。
         eventId: tour.eventId,
@@ -236,7 +324,7 @@ const actions = {
         createdBy: r.openid,
       }),
     })
-    return ok({ _id: res._id, updated: false })
+    return ok({ _id: res._id, updated: false, status: status })
   },
 
   async removeMatch (d, r) {
@@ -316,10 +404,18 @@ const actions = {
 
     const tourCount = await tournaments.where({ eventId: evt._id }).count()
 
+    // 比赛中的比赛也计分（否则记分员忘了点「结束比赛」就会静默少分），
+    // 但要把场次数告诉前端，免得组织者以为数字已经定稿。
+    let liveCount = 0
+    for (let i = 0; i < rows.length; i++) {
+      if (matchStatus(rows[i].status) === 'live') liveCount++
+    }
+
     return ok({
       isOrganizer: isOrganizer,
       eventName: evt.name,
       tournamentCount: tourCount.total,
+      liveMatchCount: liveCount,
       rows: standings.rows,
       totals: standings.totals,
       rules: {
@@ -328,6 +424,119 @@ const actions = {
         mvp: score.MVP_BONUS,
         forfeit: score.FORFEIT,
         forfeitReset: score.FORFEIT_RESET,
+      },
+    })
+  },
+
+  /**
+   * 得分助攻榜：活动级汇总，按逐分明细统计每个人的得分与助攻。
+   *
+   * 只算有明细的比赛——老比赛只有比分，分不出谁得了哪一分。场次数一并返回，
+   * 好让页面把"有几场没有明细"讲清楚，而不是让人以为统计漏了。
+   */
+  async pointStats (d, r) {
+    const e = await store.loadEvent(db, d.eventId)
+    if (e.error) return e.error
+    const evt = e.value
+    const isOrganizer = roles.canManageEvent(r, evt)
+
+    // 和积分榜同样的门槛：参与者至少要有一场赛事已发布。
+    const pub = await divisions.where({ eventId: evt._id, published: true }).limit(1).count()
+    if (pub.total === 0 && !isOrganizer) {
+      return err('DIVISION_NOT_PUBLISHED', '分队结果还没发布')
+    }
+
+    const su = await store.loadSignups(db, evt._id)
+    const rows = await loadMatchesOfEvent(evt._id)
+    const stats = score.computePointStats(rows, su.byId)
+    const tourCount = await tournaments.where({ eventId: evt._id }).count()
+
+    return ok({
+      isOrganizer: isOrganizer,
+      eventName: evt.name,
+      tournamentCount: tourCount.total,
+      matchCount: (rows || []).length,
+      rows: stats.rows,
+      totals: stats.totals,
+    })
+  },
+
+  /**
+   * 我的数据：报名者查看自己的得分与助攻，含逐场明细。
+   *
+   * 只返回调用者**自己**的数据（按 openid 反查报名记录），所以不需要额外权限，
+   * 也不受"分队已发布"的限制——自己的数据随时能看。
+   */
+  async myStats (d, r) {
+    const e = await store.loadEvent(db, d.eventId)
+    if (e.error) return e.error
+    const evt = e.value
+
+    const mine = await signups.where({
+      eventId: evt._id, openid: r.openid, status: 'signed',
+    }).limit(1).get()
+    const mySignup = (mine.data && mine.data[0]) || null
+    if (!mySignup) {
+      return ok({ found: false, eventName: evt.name, me: null })
+    }
+
+    const su = await store.loadSignups(db, evt._id)
+    const rows = await loadMatchesOfEvent(evt._id)
+    const me = score.computeMyPoints(rows, su.byId, mySignup._id)
+    if (!me) return ok({ found: false, eventName: evt.name, me: null })
+
+    // 逐场明细要带赛事名，组织者才看得懂「第 3 场」是哪一场。赛事不多，一次全取。
+    const tours = await fetchAll(function () {
+      return tournaments.where({ eventId: evt._id }).orderBy('createTime', 'asc')
+    }, { label: '活动赛事' })
+    const tourById = {}
+    const tourSeq = {}
+    for (let i = 0; i < tours.length; i++) {
+      tourById[tours[i]._id] = tours[i].name
+      tourSeq[tours[i]._id] = i + 1
+    }
+
+    // 没有明细的比赛照样可能有积分，一并列出来，并标明"无明细"。
+    const allOfEvent = (rows || []).filter(function (m) {
+      return (m.participantsA || []).indexOf(mySignup._id) >= 0 ||
+        (m.participantsB || []).indexOf(mySignup._id) >= 0 ||
+        (m.forfeitIds || []).indexOf(mySignup._id) >= 0
+    })
+    const detailByMatch = {}
+    for (let i = 0; i < me.matches.length; i++) detailByMatch[me.matches[i].matchId] = me.matches[i]
+
+    const matchRows = allOfEvent.map(function (m) {
+      const detail = detailByMatch[m._id]
+      const inA = (m.participantsA || []).indexOf(mySignup._id) >= 0
+      return {
+        matchId: m._id,
+        tournamentId: m.tournamentId,
+        tournamentName: tourById[m.tournamentId] || '(已删除的赛事)',
+        tournamentSeq: tourSeq[m.tournamentId] || 0,
+        teamName: inA
+          ? 'A 方'
+          : (m.participantsB || []).indexOf(mySignup._id) >= 0 ? 'B 方' : '',
+        scoreA: m.scoreA,
+        scoreB: m.scoreB,
+        goals: detail ? detail.goals : 0,
+        assists: detail ? detail.assists : 0,
+        hasPoints: score.hasPoints(m),
+        forfeited: (m.forfeitIds || []).indexOf(mySignup._id) >= 0,
+      }
+    })
+
+    return ok({
+      found: true,
+      eventName: evt.name,
+      tournamentCount: tours.length,
+      me: {
+        signupId: me.signupId,
+        name: me.name,
+        goals: me.goals,
+        assists: me.assists,
+        total: me.total,
+        matchCount: me.matchCount,
+        matches: matchRows,
       },
     })
   },

@@ -1134,6 +1134,334 @@ add('删除比赛后积分同步扣掉', async function () {
   eq(board.totals.matchCount, 0)
 })
 
+// ================================================================ 逐分记录（v1.0.1）
+
+/** 造一串逐分记录：scoring 是 [['A', 队员下标, 助攻下标|null], ...] */
+function pointList (ctx, scoring) {
+  return scoring.map(function (s) {
+    const team = s[0]
+    const roster = team === 'A' ? ctx.teams[0].memberIds : ctx.teams[1].memberIds
+    return {
+      team: team,
+      scorer: roster[s[1]],
+      assist: s[2] === null || s[2] === undefined ? null : roster[s[2]],
+    }
+  })
+}
+
+add('逐分记录：比分由明细条数算出来，客户端传来的比分不采信', async function () {
+  const ctx = await setupTournament([2, 2])
+  // A 得 3 分（1 分有助攻），B 得 1 分
+  const points = pointList(ctx, [['A', 0, 1], ['A', 1, 0], ['A', 0, null], ['B', 0, null]])
+  const saved = await expectOk(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+    points: points,
+    // 故意传一组错比分：云函数应当按明细重算，不能让客户端改比分
+    scoreA: 99,
+    scoreB: 0,
+  })))
+
+  const doc = mock.get('matches', saved._id)
+  eq(doc.scoreA, 3, '按明细重算 A 的比分')
+  eq(doc.scoreB, 1, '按明细重算 B 的比分')
+  eq(doc.points.length, 4, '明细原样入库')
+  eq(doc.points[0].assist, ctx.teams[0].memberIds[1], '助攻记下了')
+
+  const list = await expectOk(as(OWNER, hatMatch, 'listMatches',
+    { tournamentId: ctx.tournamentId }))
+  eq(list.list[0].scoreA, 3)
+  eq(list.list[0].hasPoints, true)
+  eq(list.list[0].points.length, 4)
+  eq(list.list[0].points[0].scorer.name, '球员0')
+  eq(list.list[0].points[2].assist, null, '没助攻时是 null')
+})
+
+add('逐分记录也能正常算积分：得分队员算上场，比分照旧推导胜负', async function () {
+  const ctx = await setupTournament([2, 2])
+  await expectOk(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+    points: pointList(ctx, [['A', 0, 1], ['A', 1, null], ['A', 0, null], ['B', 0, null]]),
+    mvpIds: [ctx.teams[1].memberIds[0]],
+  })))
+
+  const board = await expectOk(as(OWNER, hatMatch, 'leaderboard', { eventId: ctx.eventId }))
+  // A 方两人各 3 分，B 方一人 1 分 + 1 MVP
+  eq(pointsOf(board, '球员0'), 3)
+  eq(pointsOf(board, '球员1'), 3)
+  eq(pointsOf(board, '球员2'), 2)
+  eq(board.totals.matchCount, 1)
+})
+
+add('逐分记录：得分/助攻队员必须是本场上场的人', async function () {
+  const ctx = await setupTournament([2, 2])
+  const outsider = ctx.ids[ctx.ids.length - 1]
+
+  await expectErr(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+    points: [{ team: 'A', scorer: outsider, assist: null }],
+  })), 'INVALID_POINT', '得分队员不在上场名单')
+
+  await expectErr(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+    points: [{ team: 'A', scorer: ctx.teams[0].memberIds[0], assist: outsider }],
+  })), 'INVALID_POINT', '助攻队员不在上场名单')
+
+  // 拿 B 队的人当 A 队的得分队员同样不行
+  await expectErr(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+    points: [{ team: 'A', scorer: ctx.teams[1].memberIds[0], assist: null }],
+  })), 'INVALID_POINT', '别队的人不能算进 A 队的得分')
+})
+
+add('逐分记录：得分和助攻不能是同一人，队伍必须合法', async function () {
+  const ctx = await setupTournament([2, 2])
+  const me = ctx.teams[0].memberIds[0]
+
+  await expectErr(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+    points: [{ team: 'A', scorer: me, assist: me }],
+  })), 'INVALID_POINT', '自助攻')
+
+  await expectErr(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+    points: [{ team: 'C', scorer: me, assist: null }],
+  })), 'INVALID_POINT', '队伍只能是 A/B')
+
+  await expectErr(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+    points: [{ team: 'A', scorer: '', assist: null }],
+  })), 'INVALID_POINT', '缺得分队员')
+})
+
+add('逐分记录：平局和超出上限都被拒', async function () {
+  const ctx = await setupTournament([2, 2])
+  await expectErr(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+    points: pointList(ctx, [['A', 0, null], ['B', 0, null]]),
+  })), 'DRAW_NOT_ALLOWED', '明细记成平局')
+
+  const many = []
+  for (let i = 0; i < 201; i++) {
+    many.push({ team: 'A', scorer: ctx.teams[0].memberIds[0], assist: null })
+  }
+  await expectErr(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, { points: many })),
+    'INVALID_INPUT', '超出单场上限')
+})
+
+add('逐分记录：弃赛和上场互斥，所以弃赛的人不可能有得分记录', async function () {
+  const ctx = await setupTournament([2, 2])
+  const A = ctx.teams[0].memberIds
+  // A 队只派一个人上场，队友记弃赛
+  const benched = A[1]
+
+  await expectOk(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+    participantsA: [A[0]],
+    points: [{ team: 'A', scorer: A[0], assist: null },
+      { team: 'A', scorer: A[0], assist: null },
+      { team: 'B', scorer: ctx.teams[1].memberIds[0], assist: null }],
+    forfeitIds: [benched],
+  })), '没上场的人可以记弃赛')
+
+  // 反过来：既在上场名单里又记弃赛 → 直接报错
+  await expectErr(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+    forfeitIds: [A[0]],
+  })), 'INVALID_FORFEIT', '上场的人不能记弃赛')
+
+  // 弃赛的人也不可能出现在得分明细里——他不在上场名单，两种错都会挡住
+  await expectErr(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+    participantsA: [A[0]],
+    points: [{ team: 'A', scorer: benched, assist: null },
+      { team: 'B', scorer: ctx.teams[1].memberIds[0], assist: null }],
+  })), 'INVALID_POINT', '弃赛的人算不得分')
+})
+
+add('比赛状态：比赛中存 live，结束后存 finished；老前端不传按 finished', async function () {
+  const ctx = await setupTournament([2, 2])
+
+  const live = await expectOk(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+    points: pointList(ctx, [['A', 0, null], ['A', 1, null], ['B', 0, null]]),
+    status: 'live',
+  })))
+  eq(mock.get('matches', live._id).status, 'live')
+
+  let list = await expectOk(as(OWNER, hatMatch, 'listMatches', { tournamentId: ctx.tournamentId }))
+  eq(list.list[0].status, 'live')
+
+  // 比赛中的比赛也计分——否则记分员忘了点「比赛结束」就会静默少分
+  let board = await expectOk(as(OWNER, hatMatch, 'leaderboard', { eventId: ctx.eventId }))
+  eq(board.liveMatchCount, 1, '要告诉前端还有几场没结束')
+  eq(pointsOf(board, '球员0'), 3)
+
+  // 结束它
+  await expectOk(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+    matchId: live._id,
+    points: pointList(ctx, [['A', 0, null], ['A', 1, null], ['A', 0, null], ['B', 0, null]]),
+    status: 'finished',
+  })))
+  list = await expectOk(as(OWNER, hatMatch, 'listMatches', { tournamentId: ctx.tournamentId }))
+  eq(list.list[0].status, 'finished')
+  board = await expectOk(as(OWNER, hatMatch, 'leaderboard', { eventId: ctx.eventId }))
+  eq(board.liveMatchCount, 0)
+
+  // 不传 status 的一律当已结束（老前端、以及历史数据）
+  const legacy = await expectOk(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+    matchId: live._id, points: pointList(ctx, [['A', 0, null], ['B', 0, null], ['A', 1, null]]),
+  })))
+  eq(legacy.status, 'finished')
+  eq(mock.get('matches', live._id).status, 'finished')
+
+  // 历史数据没有 status 字段，不能被当成"比赛中"
+  mock.insert('matches', {
+    tournamentId: ctx.tournamentId, eventId: ctx.eventId,
+    teamAIndex: 0, teamBIndex: 1, scoreA: 15, scoreB: 10,
+    participantsA: ctx.teams[0].memberIds, participantsB: ctx.teams[1].memberIds,
+    mvpIds: [], forfeitIds: [], createTime: Date.now(),
+  })
+  const all = await expectOk(as(OWNER, hatMatch, 'listMatches', { tournamentId: ctx.tournamentId }))
+  const noStatus = all.list.filter(function (m) { return !m.hasPoints && m.scoreA === 15 })[0]
+  eq(noStatus.status, 'finished', '没有 status 的历史记录算已结束')
+})
+
+add('老比赛没有明细：照样计入积分，但不进得分助攻榜', async function () {
+  const ctx = await setupTournament([2, 2])
+  // 不带 points 的提交就是 v1.0.1 之前的老前端行为
+  await expectOk(as(OWNER, hatMatch, 'saveMatch', matchData(ctx)))
+
+  const board = await expectOk(as(OWNER, hatMatch, 'leaderboard', { eventId: ctx.eventId }))
+  eq(board.totals.matchCount, 1, '积分照算')
+  eq(pointsOf(board, '球员0'), 3)
+
+  const stats = await expectOk(as(OWNER, hatMatch, 'pointStats', { eventId: ctx.eventId }))
+  eq(stats.matchCount, 1, '赛事里确实有 1 场')
+  eq(stats.totals.matchCount, 0, '但没有明细，进不了统计')
+  eq(stats.totals.pointCount, 0)
+  stats.rows.forEach(function (r) { eq(r.goals, 0, r.name) })
+})
+
+add('老比赛（无明细）仍可编辑：只改 MVP / 弃赛时比分原样保留', async function () {
+  const ctx = await setupTournament([2, 2])
+  // 老前端提交方式：没有 points，手填 15:10
+  const saved = await expectOk(as(OWNER, hatMatch, 'saveMatch', matchData(ctx)))
+  eq(mock.get('matches', saved._id).scoreA, 15)
+
+  // 前端补录 MVP 时会连明细一起提交（老比赛没有明细，就是空数组），
+  // 比分也必须原样带回来——否则会被算成 0:0 而拒绝保存。
+  await expectOk(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+    matchId: saved._id,
+    points: [],
+    mvpIds: [ctx.teams[1].memberIds[0]],
+  })), '老比赛要能补录 MVP')
+
+  const doc = mock.get('matches', saved._id)
+  eq(doc.scoreA, 15, '比分不能被明细覆盖成 0')
+  eq(doc.scoreB, 10)
+  eq(doc.points.length, 0)
+
+  const board = await expectOk(as(OWNER, hatMatch, 'leaderboard', { eventId: ctx.eventId }))
+  eq(pointsOf(board, '球员2'), 2, '原有积分 + MVP 都还在')
+})
+
+add('得分助攻榜：按逐分记录汇总，含三张榜需要的数据', async function () {
+  const ctx = await setupTournament([2, 2])
+  const A = ctx.teams[0].memberIds
+  const B = ctx.teams[1].memberIds
+
+  await expectOk(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+    points: [
+      { team: 'A', scorer: A[0], assist: A[1] },
+      { team: 'A', scorer: A[0], assist: null },
+      { team: 'A', scorer: A[1], assist: A[0] },
+      { team: 'B', scorer: B[0], assist: B[1] },
+    ],
+  })))
+
+  const stats = await expectOk(as(OWNER, hatMatch, 'pointStats', { eventId: ctx.eventId }))
+  eq(stats.totals.matchCount, 1)
+  eq(stats.totals.pointCount, 4)
+  eq(stats.matchCount, 1)
+
+  function row (id) {
+    return stats.rows.filter(function (r) { return r.signupId === id })[0]
+  }
+  eq(row(A[0]).goals, 2)
+  eq(row(A[0]).assists, 1)
+  eq(row(A[0]).total, 3)
+  eq(row(A[1]).goals, 1)
+  eq(row(A[1]).assists, 1)
+  eq(row(B[1]).goals, 0)
+  eq(row(B[1]).assists, 1)
+  // 榜单里不能有水平
+  ok(JSON.stringify(stats).indexOf('level') < 0, '得分榜不该带 level')
+})
+
+add('我的数据：只返回自己的数据，含逐场明细', async function () {
+  const ctx = await setupTournament([2, 2])
+  const A = ctx.teams[0].memberIds
+  const B = ctx.teams[1].memberIds
+
+  await expectOk(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+    points: [
+      { team: 'A', scorer: A[0], assist: A[1] },
+      { team: 'A', scorer: A[0], assist: null },
+      { team: 'A', scorer: A[1], assist: A[0] },
+      { team: 'B', scorer: B[0], assist: null },
+    ],
+  })))
+
+  const mine = await expectOk(as('player-0', hatMatch, 'myStats', { eventId: ctx.eventId }))
+  eq(mine.found, true)
+  eq(mine.me.name, '球员0')
+  eq(mine.me.goals, 2)
+  eq(mine.me.assists, 1)
+  eq(mine.me.total, 3)
+  eq(mine.me.matchCount, 1)
+  eq(mine.me.matches.length, 1)
+  eq(mine.me.matches[0].goals, 2)
+  eq(mine.me.matches[0].assists, 1)
+  eq(mine.me.matches[0].tournamentName, '第 1 场')
+  ok(JSON.stringify(mine).indexOf('level') < 0)
+
+  // 换个人看到的是他自己那份
+  const other = await expectOk(as('player-1', hatMatch, 'myStats', { eventId: ctx.eventId }))
+  eq(other.me.name, '球员1')
+  eq(other.me.goals, 1)
+  eq(other.me.assists, 1)
+})
+
+add('我的数据：没报名、以及老比赛（无明细）的处理', async function () {
+  const ctx = await setupTournament([2, 2])
+
+  // 没报名的人
+  const none = await expectOk(as(ALICE, hatMatch, 'myStats', { eventId: ctx.eventId }))
+  eq(none.found, false)
+  eq(none.me, null)
+
+  // 老比赛没有明细：逐场明细里仍要出现（标明无明细），但得分助攻是 0
+  await expectOk(as(OWNER, hatMatch, 'saveMatch', matchData(ctx)))
+  const mine = await expectOk(as('player-0', hatMatch, 'myStats', { eventId: ctx.eventId }))
+  eq(mine.found, true)
+  eq(mine.me.goals, 0)
+  eq(mine.me.matchCount, 0, '没有明细的比赛不进"有数据的场次"')
+  eq(mine.me.matches.length, 1, '但要出现在逐场明细里')
+  eq(mine.me.matches[0].hasPoints, false)
+})
+
+add('得分助攻榜和我的数据：一般参与者也能看（不需要管理权限）', async function () {
+  const ctx = await setupTournament([2, 2])
+  await expectOk(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+    points: pointList(ctx, [['A', 0, 1], ['A', 1, null], ['B', 0, null]]),
+  })))
+
+  await expectOk(as('player-0', hatMatch, 'pointStats', { eventId: ctx.eventId }))
+  await expectOk(as('player-0', hatMatch, 'myStats', { eventId: ctx.eventId }))
+})
+
+add('得分助攻榜：分队未发布时参与者看不到', async function () {
+  const ctx = await setupTournament([2, 2])
+  await expectOk(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+    points: pointList(ctx, [['A', 0, null], ['B', 0, null], ['A', 1, null]]),
+  })))
+  await expectOk(as(OWNER, hatTeam, 'unpublish', { tournamentId: ctx.tournamentId }))
+
+  await expectErr(as('player-0', hatMatch, 'pointStats', { eventId: ctx.eventId }),
+    'DIVISION_NOT_PUBLISHED')
+  // 自己的数据不受这个限制
+  await expectOk(as('player-0', hatMatch, 'myStats', { eventId: ctx.eventId }))
+  // 组织者照样能看
+  await expectOk(as(OWNER, hatMatch, 'pointStats', { eventId: ctx.eventId }))
+})
+
 add('不能跨赛事改别场的比赛记录', async function () {
   const ctx = await setupTournament([2, 2])
   const other = await setupTournament([2, 2], { name: '另一场' })

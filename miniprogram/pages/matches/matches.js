@@ -92,12 +92,18 @@ Page({
   goLeaderboard: function () {
     wx.navigateTo({ url: '/pages/leaderboard/leaderboard?eventId=' + this.data.eventId })
   },
+
+  goStats: function () {
+    wx.navigateTo({ url: '/pages/stats/stats?eventId=' + this.data.eventId })
+  },
 })
 
 function decorate (m, i) {
   const aWin = m.winner === 'A'
   return Object.assign({}, m, {
     seq: i + 1,
+    // 比赛中就存下来的记录在列表上标出来，免得记分员忘了回去点「比赛结束」
+    live: m.status === 'live',
     titleText: m.teamAName + ' vs ' + m.teamBName,
     scoreText: m.scoreA + ' : ' + m.scoreB,
     winnerName: aWin ? m.teamAName : m.teamBName,

@@ -1,0 +1,51 @@
+<view class="page">
+  <view wx:if="{{failMessage}}" class="banner banner-error">{{failMessage}}</view>
+  <view wx:if="{{loading}}" class="empty">加载中…</view>
+
+  <block wx:elif="{{!failMessage}}">
+    <view class="card">
+      <view class="card-title">{{eventName}}</view>
+      <view class="card-meta">
+        已按逐分记录统计 {{totals.matchCount}} 场比赛 · {{totals.pointCount}} 个得分记录
+      </view>
+      <view wx:if="{{missingText}}" class="banner banner-warn gap">{{missingText}}</view>
+      <view class="field-hint">每张榜至多显示前 15 名，按对应的数据降序排列。</view>
+    </view>
+
+    <view wx:if="{{totals.pointCount === 0}}" class="empty">
+      <view class="empty-title">还没有可统计的逐分记录</view>
+      <view class="small">升级前录入的比赛只有比分，分不出谁得了哪一分</view>
+    </view>
+
+    <view wx:for="{{boards}}" wx:for-item="board" wx:key="key" class="card">
+      <view class="row-between">
+        <text class="card-title">{{board.title}}</text>
+        <text class="muted small">前 {{board.rows.length}} 名</text>
+      </view>
+
+      <view wx:if="{{board.rows.length > 0}}" class="bd-head">
+        <text class="bd-rank">名次</text>
+        <text class="bd-name">姓名</text>
+        <text class="bd-val">{{board.unit}}</text>
+      </view>
+
+      <view wx:for="{{board.rows}}" wx:key="signupId" class="bd-row">
+        <text class="bd-rank {{item.rankClass}}">{{item.rank}}</text>
+        <view class="bd-name">
+          <text class="strong">{{item.name}}</text>
+          <text class="muted small">{{item.genderText}} · 得分 {{item.goals}} · 助攻 {{item.assists}}</text>
+        </view>
+        <text class="bd-val">{{item.value}}</text>
+      </view>
+
+      <view wx:if="{{board.rows.length === 0}}" class="muted small">这项还没有人上榜</view>
+    </view>
+
+    <view class="footer-spacer"></view>
+  </block>
+</view>
+
+<view wx:if="{{!loading && !failMessage}}" class="footer-bar">
+  <button class="btn btn-plain" bindtap="goLeaderboard">个人积分榜</button>
+  <button class="btn" open-type="share">分享榜单</button>
+</view>

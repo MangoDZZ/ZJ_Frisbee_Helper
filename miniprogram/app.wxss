@@ -77,6 +77,8 @@ page {
 .tag-draft { background: #fdf0dd; color: #96631a; }
 .tag-mine { background: var(--theme); color: #fff; }
 .tag-full { background: #fdeaea; color: #b4322c; }
+/* 比赛进行中：橙黄底，和"已结束"的灰底区分开 */
+.tag-live { background: #fdf0dd; color: #96631a; }
 
 /* ---------- 按钮 ---------- */
 .btn {

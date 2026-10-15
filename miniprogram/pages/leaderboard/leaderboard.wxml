@@ -15,6 +15,9 @@
           <text>{{item.text}}</text>
         </view>
       </view>
+      <view wx:if="{{liveMatchCount > 0}}" class="banner banner-warn gap">
+        有 {{liveMatchCount}} 场比赛还在进行中，它们的得分已经计入本榜，结束后数字才会定稿。
+      </view>
       <view class="field-hint">本榜汇总了这个活动下全部赛事的积分。</view>
     </view>
 
@@ -47,5 +50,6 @@
 
 <view wx:if="{{!loading && !failMessage}}" class="footer-bar">
   <button class="btn btn-plain" bindtap="goTournaments">赛事列表</button>
+  <button class="btn btn-ghost" bindtap="goStats">得分助攻榜</button>
   <button class="btn" open-type="share">分享积分榜</button>
 </view>
