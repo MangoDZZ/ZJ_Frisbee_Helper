@@ -150,6 +150,27 @@ add('创建活动：表单校验', async function () {
     'INVALID_INPUT', '截止晚于开始')
 })
 
+add('活动可以跨天：结束时间晚于开始一天以上照样接受，且仍然可选', async function () {
+  const start = Date.now() + 3 * DAY
+
+  // 跨天（两天一夜）
+  const id = await createEvent({
+    startTime: start, endTime: start + 2 * DAY, signupDeadline: null,
+  })
+  const doc = mock.get('events', id)
+  eq(doc.endTime - doc.startTime, 2 * DAY, '跨度按原样存下')
+
+  // 不填结束时间
+  const id2 = await createEvent({ endTime: null, signupDeadline: null })
+  eq(mock.get('events', id2).endTime, null, '结束时间可以不填')
+
+  // 二者都能正常读回来（列表走的是同一条查询）
+  const list = (await expectOk(as(OWNER, hatEvent, 'list', {}))).list
+  const row = list.filter(function (e) { return e._id === id })[0]
+  eq(row.endTime, start + 2 * DAY)
+  eq(row.startTime, start)
+})
+
 add('非创建者不能改活动、不能关报名、不能删活动', async function () {
   const id = await createEvent()
   await expectErr(as(ALICE, hatEvent, 'update', Object.assign({ eventId: id }, eventForm())),

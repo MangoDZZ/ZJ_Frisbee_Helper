@@ -13,6 +13,7 @@ Page({
       location: '',
       startDate: '',
       startTime: '',
+      endDate: '',
       endTime: '',
       deadlineDate: '',
       deadlineTime: '',
@@ -25,7 +26,9 @@ Page({
   onLoad: function (q) {
     const that = this
     if (!q.eventId) {
-      // 新建时给个合理默认：下周六 19:00。
+      // 新建时给个合理默认：下周六 19:00-21:00。
+      // 结束日期故意留空：留空就按开始当天算，这样改了开始日期也不会把结束时间带偏；
+      // 只有跨天的活动才需要显式选结束日期。
       const d = new Date()
       d.setDate(d.getDate() + ((6 - d.getDay() + 7) % 7 || 7))
       const s = fmt.splitTimestamp(d.getTime())
@@ -51,6 +54,7 @@ Page({
             location: e.location || '',
             startDate: s.date,
             startTime: s.time,
+            endDate: en.date,
             endTime: en.time,
             deadlineDate: dl.date,
             deadlineTime: dl.time,
@@ -73,6 +77,10 @@ Page({
     this.setData({ 'form.deadlineDate': '', 'form.deadlineTime': '' })
   },
 
+  clearEnd: function () {
+    this.setData({ 'form.endDate': '', 'form.endTime': '' })
+  },
+
   submit: function () {
     const f = this.data.form
 
@@ -89,8 +97,11 @@ Page({
     }
 
     const startTime = fmt.toTimestamp(f.startDate, f.startTime)
-    // 结束时间只选时分，日期跟开始时间同一天；跨天的活动用不到。
-    const endTime = f.endTime ? fmt.toTimestamp(f.startDate, f.endTime) : null
+    // 结束时间可选，且**可以跨天**：选了结束日期就按它算，没选就按开始当天算
+    // （同一天的短活动不用特意再选一次日期）。只填了日期没填时分，按当天 23:59 算。
+    const endTime = (f.endDate || f.endTime)
+      ? fmt.toTimestamp(f.endDate || f.startDate, f.endTime || '23:59')
+      : null
     if (endTime && endTime < startTime) return warn('结束时间不能早于开始时间')
 
     const signupDeadline = f.deadlineDate

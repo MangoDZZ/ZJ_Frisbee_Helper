@@ -12,31 +12,48 @@
              bindinput="onInput" placeholder="球场名称" maxlength="60" />
     </view>
 
+    <!-- 开始：日期 + 时间（必填） -->
     <view class="field">
-      <view class="field-label">日期 <text class="req">*</text></view>
-      <picker mode="date" value="{{form.startDate}}" data-field="startDate" bindchange="onInput">
-        <view class="picker-value {{form.startDate ? '' : 'placeholder'}}">
-          {{form.startDate || '选择日期'}}
-        </view>
-      </picker>
-    </view>
-
-    <view class="field-row">
-      <view class="field field-half">
-        <view class="field-label">开始 <text class="req">*</text></view>
-        <picker mode="time" value="{{form.startTime}}" data-field="startTime" bindchange="onInput">
+      <view class="field-label">开始时间 <text class="req">*</text></view>
+      <view class="field-row">
+        <picker class="field-half" mode="date" value="{{form.startDate}}"
+                data-field="startDate" bindchange="onInput">
+          <view class="picker-value {{form.startDate ? '' : 'placeholder'}}">
+            {{form.startDate || '选择日期'}}
+          </view>
+        </picker>
+        <picker class="field-half" mode="time" value="{{form.startTime}}"
+                data-field="startTime" bindchange="onInput">
           <view class="picker-value {{form.startTime ? '' : 'placeholder'}}">
-            {{form.startTime || '选择'}}
+            {{form.startTime || '选择时间'}}
           </view>
         </picker>
       </view>
-      <view class="field field-half">
-        <view class="field-label">结束</view>
-        <picker mode="time" value="{{form.endTime}}" data-field="endTime" bindchange="onInput">
-          <view class="picker-value {{form.endTime ? '' : 'placeholder'}}">
-            {{form.endTime || '选填'}}
+    </view>
+
+    <!-- 结束：日期 + 时间（选填）。活动可以跨天，所以结束日期得单独选 -->
+    <view class="field">
+      <view class="row-between">
+        <view class="field-label">结束时间</view>
+        <text wx:if="{{form.endDate || form.endTime}}" class="muted small"
+              bindtap="clearEnd">清除</text>
+      </view>
+      <view class="field-row">
+        <picker class="field-half" mode="date" value="{{form.endDate}}"
+                data-field="endDate" bindchange="onInput">
+          <view class="picker-value {{form.endDate ? '' : 'placeholder'}}">
+            {{form.endDate || '开始同一天'}}
           </view>
         </picker>
+        <picker class="field-half" mode="time" value="{{form.endTime}}"
+                data-field="endTime" bindchange="onInput">
+          <view class="picker-value {{form.endTime ? '' : 'placeholder'}}">
+            {{form.endTime || '选填时间'}}
+          </view>
+        </picker>
+      </view>
+      <view class="field-hint">
+        活动可以跨天。结束日期不填就按开始当天算；整个结束时间可以不填。
       </view>
     </view>
 
