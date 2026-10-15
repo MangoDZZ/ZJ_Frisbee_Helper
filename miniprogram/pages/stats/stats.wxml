@@ -47,5 +47,5 @@
 
 <view wx:if="{{!loading && !failMessage}}" class="footer-bar">
   <button class="btn btn-plain" bindtap="goLeaderboard">个人积分榜</button>
-  <button class="btn" open-type="share">分享榜单</button>
+  <button class="btn" open-type="share">分享</button>
 </view>

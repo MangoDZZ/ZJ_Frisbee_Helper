@@ -58,7 +58,7 @@
           {{tournaments.length > 0 ? '赛事与分队' : '还没有赛事'}}
         </button>
         <button class="btn btn-plain btn-sm" bindtap="goLeaderboard">积分榜</button>
-        <button class="btn btn-plain btn-sm" bindtap="goStats">得分助攻榜</button>
+        <button class="btn btn-plain btn-sm" bindtap="goStats">查看数据</button>
       </view>
     </view>
 

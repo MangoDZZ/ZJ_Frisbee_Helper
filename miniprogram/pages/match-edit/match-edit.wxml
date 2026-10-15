@@ -177,7 +177,7 @@
         </view>
         <view class="btn-bar gap">
           <button class="btn btn-ghost btn-sm" bindtap="goLeaderboard">积分榜</button>
-          <button class="btn btn-plain btn-sm" bindtap="goStats">得分助攻榜</button>
+          <button class="btn btn-plain btn-sm" bindtap="goStats">查看数据</button>
         </view>
       </view>
 
