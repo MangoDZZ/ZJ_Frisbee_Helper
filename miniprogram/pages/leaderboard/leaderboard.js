@@ -62,7 +62,7 @@ Page({
               eventText: r.eventDelta
                 ? '含随机事件 ' + (r.eventDelta > 0 ? '+' : '') + r.eventDelta
                 : '',
-              resetText: r.reset ? '累计弃赛 ' + (d.rules ? d.rules.forfeitReset : 2) + ' 次，积分归零' : '',
+              resetText: r.reset ? '累计弃赛 ' + ruleValue(d.rules, 'forfeitReset') + ' 次，积分归零' : '',
               recordText: r.played > 0 || r.forfeitCount > 0
                 ? r.tournamentCount + ' 场赛事 · ' + r.played + ' 战 ' +
                   r.won + ' 胜 ' + r.lost + ' 负' +
