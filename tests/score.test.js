@@ -444,6 +444,129 @@ test('上限常量存在且为正整数', function () {
   eq(Math.floor(score.MAX_POINTS_PER_MATCH), score.MAX_POINTS_PER_MATCH)
 })
 
+// ================================================================ 随机事件调整
+
+/** 造一条调整：某几个人加/减 delta */
+function adj (ids, delta) { return { signupIds: ids, delta: delta } }
+
+test('随机事件：调整分与比赛分分开留档，总分是两者之和', function () {
+  const su = makeSignups(['a1', 'b1'])
+  const res = score.computeStandings([
+    match({ scoreA: 15, scoreB: 10, participantsA: ['a1'], participantsB: ['b1'] }),
+  ], su, [adj(['a1'], 2), adj(['b1'], -1)])
+
+  eq(rowOf(res, 'a1').matchPoints, 3, '比赛分')
+  eq(rowOf(res, 'a1').eventDelta, 2, '事件调整分')
+  eq(rowOf(res, 'a1').points, 5, '总分')
+  eq(rowOf(res, 'a1').eventCount, 1)
+
+  eq(rowOf(res, 'b1').matchPoints, 1)
+  eq(rowOf(res, 'b1').eventDelta, -1)
+  eq(rowOf(res, 'b1').points, 0)
+})
+
+test('随机事件：同一个人被多条事件影响要累加，同一条事件里的重复只算一次', function () {
+  const su = makeSignups(['a1'])
+  const res = score.computeStandings([], su, [
+    adj(['a1'], 3),
+    adj(['a1'], -1),
+    adj(['a1', 'a1'], 2),   // 同一条里重复出现：只算一次
+  ])
+  eq(rowOf(res, 'a1').eventDelta, 4, '3 - 1 + 2（重复的那次不算第二遍）')
+  eq(rowOf(res, 'a1').eventCount, 3, '三条事件都影响了他')
+  eq(rowOf(res, 'a1').points, 4)
+})
+
+test('随机事件：一条事件作用于多个人', function () {
+  const su = makeSignups(['a1', 'a2', 'b1'])
+  const res = score.computeStandings([], su, [adj(['a1', 'a2'], -2)])
+  eq(rowOf(res, 'a1').eventDelta, -2)
+  eq(rowOf(res, 'a2').eventDelta, -2)
+  eq(rowOf(res, 'b1').eventDelta, 0, '没被点到的还是 0')
+  eq(res.totals.eventCount, 1, '事件条数，不是受影响的人次')
+})
+
+test('随机事件：只影响积分，不影响胜场 / 上场数 / 参赛赛事数', function () {
+  const su = makeSignups(['a1', 'b1'])
+  const res = score.computeStandings([
+    match({ scoreA: 15, scoreB: 10, participantsA: ['a1'], participantsB: ['b1'] }),
+  ], su, [adj(['a1'], 5)])
+
+  const r = rowOf(res, 'a1')
+  eq(r.won, 1)
+  eq(r.played, 1)
+  eq(r.tournamentCount, 1)
+  eq(r.mvpCount, 0)
+})
+
+test('随机事件：名单里已不存在的人忽略，不凭空造行', function () {
+  const su = makeSignups(['a1'])
+  const res = score.computeStandings([], su, [adj(['ghost'], 5)])
+  eq(res.rows.length, 1, '不应多出幽灵行')
+  eq(rowOf(res, 'a1').points, 0)
+  ok(!rowOf(res, 'ghost'))
+})
+
+test('随机事件：delta 为 0 / 非数字 / 缺字段时忽略，不污染积分', function () {
+  const su = makeSignups(['a1'])
+  const res = score.computeStandings([], su, [
+    adj(['a1'], 0),
+    adj(['a1'], 'abc'),
+    adj(['a1'], null),
+    { signupIds: ['a1'] },
+    null,
+    adj(null, 3),
+    adj(['a1'], 3),
+  ])
+  eq(rowOf(res, 'a1').eventDelta, 3, '只有那条合法的生效')
+  eq(rowOf(res, 'a1').eventCount, 1)
+})
+
+test('随机事件：不传第三个参数时向后兼容（老调用点）', function () {
+  const su = makeSignups(['a1', 'b1'])
+  const res = score.computeStandings([
+    match({ scoreA: 15, scoreB: 10, participantsA: ['a1'], participantsB: ['b1'] }),
+  ], su)
+  eq(rowOf(res, 'a1').points, 3)
+  eq(rowOf(res, 'a1').eventDelta, 0)
+  eq(rowOf(res, 'a1').eventCount, 0)
+  eq(rowOf(res, 'a1').reset, false)
+})
+
+test('随机事件：累计弃赛归零时事件调整一起归零，但数额留档', function () {
+  // a1 只弃赛、从不上场，比赛分才干净地是 -3 x2
+  const su = makeSignups(['a1', 'b1', 'b2'])
+  const res = score.computeStandings([
+    match({ scoreA: 15, scoreB: 10, participantsA: ['b1'], participantsB: ['b2'], forfeitIds: ['a1'] }),
+    match({ scoreA: 15, scoreB: 10, participantsA: ['b1'], participantsB: ['b2'], forfeitIds: ['a1'] }),
+  ], su, [adj(['a1'], 5)])
+
+  const r = rowOf(res, 'a1')
+  eq(r.forfeitCount, 2)
+  eq(r.reset, true)
+  eq(r.points, 0, '积分归零（连事件调整）')
+  eq(r.eventDelta, 5, '数额仍留档，能解释这笔分怎么没的')
+  eq(r.matchPoints, -6, '比赛分也不隐藏：两次弃赛各 -3')
+  eq(res.totals.eventResetCount, 1)
+})
+
+test('随机事件：排序按最终总分，事件分能改变名次', function () {
+  const su = makeSignups(['甲', '乙'])
+  // 甲比赛分高：甲 3 分、乙 0 分
+  const res = score.computeStandings([
+    match({ scoreA: 15, scoreB: 10, participantsA: ['甲'], participantsB: [] }),
+  ], su, [adj(['乙'], 9)])
+  eq(res.rows[0].signupId, '乙', '乙靠事件分反超')
+  eq(res.rows[0].points, 9)
+  eq(res.rows[1].points, 3)
+})
+
+test('随机事件：返回里不含 level（水平不公开）', function () {
+  const su = makeSignups(['a1', 'b1'])
+  const res = score.computeStandings([], su, [adj(['a1'], 1)])
+  ok(JSON.stringify(res).indexOf('level') < 0, '整个返回里都不该出现 level')
+})
+
 // ---------------------------------------------------------------- 汇总
 
 console.log('')

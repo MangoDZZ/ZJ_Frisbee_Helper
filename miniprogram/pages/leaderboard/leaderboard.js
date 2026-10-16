@@ -14,6 +14,7 @@ Page({
     tournamentCount: 0,
     liveMatchCount: 0,
     ruleGroups: [],
+    recentDraws: [],
   },
 
   onLoad: function (q) {
@@ -48,9 +49,20 @@ Page({
           tournamentCount: d.tournamentCount || 0,
           liveMatchCount: d.liveMatchCount || 0,
           ruleGroups: ruleGroupsOf(d.rules),
+          recentDraws: (d.recentDraws || []).map(function (x) {
+            return Object.assign({}, x, {
+              timeText: fmt.formatDateTime(x.createTime),
+              namesText: (x.names || []).join('、'),
+            })
+          }),
           rows: (d.rows || []).map(function (r) {
             return Object.assign({}, r, {
               genderText: fmt.genderText(r.gender),
+              // 事件调整单独标出来，免得看到"比赛没打却有分"觉得算错了
+              eventText: r.eventDelta
+                ? '含随机事件 ' + (r.eventDelta > 0 ? '+' : '') + r.eventDelta
+                : '',
+              resetText: r.reset ? '累计弃赛 ' + (d.rules ? d.rules.forfeitReset : 2) + ' 次，积分归零' : '',
               recordText: r.played > 0 || r.forfeitCount > 0
                 ? r.tournamentCount + ' 场赛事 · ' + r.played + ' 战 ' +
                   r.won + ' 胜 ' + r.lost + ' 负' +
@@ -58,7 +70,7 @@ Page({
                 : '未上场',
               // 前三名给个高亮，其余保持朴素
               rankClass: r.points > 0 && r.rank <= 3 ? 'rank-top rank-' + r.rank : '',
-              dimClass: r.played === 0 ? 'row-dim' : '',
+              dimClass: r.played === 0 && !r.eventDelta ? 'row-dim' : '',
             })
           }),
         })

@@ -53,12 +53,14 @@
     </view>
 
     <view class="card">
-      <view class="btn-bar">
+      <view class="btn-bar gap">
         <button class="btn btn-ghost btn-sm" bindtap="goTournaments">
           {{tournaments.length > 0 ? '赛事与分队' : '还没有赛事'}}
         </button>
         <button class="btn btn-plain btn-sm" bindtap="goLeaderboard">积分榜</button>
         <button class="btn btn-plain btn-sm" bindtap="goStats">查看数据</button>
+        <button wx:if="{{canManage}}" class="btn btn-plain btn-sm"
+                bindtap="goRandomEvents">随机事件</button>
       </view>
     </view>
 

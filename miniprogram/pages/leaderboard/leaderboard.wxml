@@ -38,10 +38,29 @@
         <view class="lb-name">
           <text class="strong">{{item.name}}</text>
           <text class="muted small">{{item.recordText}}</text>
+          <text wx:if="{{item.eventText}}" class="muted small">{{item.eventText}}</text>
+          <text wx:if="{{item.resetText}}" class="muted small reset-text">{{item.resetText}}</text>
         </view>
         <text class="lb-mvp">{{item.mvpCount > 0 ? item.mvpCount : '-'}}</text>
         <text class="lb-pts">{{item.points}}</text>
       </view>
+    </view>
+
+    <!-- 随机事件：参与者也能看到"这几分是怎么来的" -->
+    <view wx:if="{{recentDraws.length > 0}}" class="card">
+      <view class="card-title">随机事件</view>
+      <view class="field-hint">由组织者抽取，效果已计入上面的积分。</view>
+      <view wx:for="{{recentDraws}}" wx:key="_id" class="draw-row">
+        <view class="draw-main">
+          <view class="row">
+            <text class="strong">{{item.text}}</text>
+            <text class="delta {{item.delta > 0 ? 'delta-plus' : 'delta-minus'}}">{{item.deltaText}}</text>
+          </view>
+          <view class="muted small">{{item.namesText}}</view>
+        </view>
+        <text class="muted small">{{item.timeText}}</text>
+      </view>
+      <view class="muted small gap">只显示最近 {{recentDraws.length}} 条</view>
     </view>
 
     <view class="footer-spacer"></view>

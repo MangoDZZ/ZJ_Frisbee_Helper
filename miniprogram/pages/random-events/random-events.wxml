@@ -1,0 +1,121 @@
+<view class="page">
+  <view wx:if="{{failMessage}}" class="banner banner-error">{{failMessage}}</view>
+  <view wx:if="{{loading}}" class="empty">加载中…</view>
+
+  <block wx:elif="{{!failMessage}}">
+    <!-- 抽取 -->
+    <view class="card">
+      <view class="card-title">{{eventName}} · 随机事件</view>
+      <view class="field-hint">
+        先从下面的事件池里准备若干事件（说明 + 触发名单 + 效果），需要时点「抽取」，
+        随机抽一个立即生效并计入积分榜。抽中的事件会留在池子里，可以继续抽。
+      </view>
+      <button class="btn draw-btn gap" bindtap="draw" disabled="{{pool.length === 0}}">
+        抽取一个随机事件
+      </button>
+      <view wx:if="{{pool.length === 0}}" class="field-hint">还没有事件，先在下面添加</view>
+    </view>
+
+    <!-- 已触发 -->
+    <view class="card">
+      <view class="row-between">
+        <text class="card-title">已触发</text>
+        <text class="muted small">{{draws.length}} 条</text>
+      </view>
+
+      <block wx:if="{{draws.length > 0}}">
+        <view wx:for="{{draws}}" wx:key="_id" class="ev-row">
+          <view class="ev-main">
+            <view class="row">
+              <text class="strong">{{item.text}}</text>
+              <text class="delta {{item.deltaClass}}">{{item.deltaText}}</text>
+            </view>
+            <view class="muted small">{{item.namesText}}</view>
+          </view>
+          <view class="ev-side">
+            <text class="muted small">{{item.timeText}}</text>
+            <text class="ev-undo" data-index="{{index}}" bindtap="undoDraw">撤销</text>
+          </view>
+        </view>
+      </block>
+      <view wx:else class="muted small">还没有抽取过</view>
+    </view>
+
+    <!-- 事件池 -->
+    <view class="card">
+      <view class="row-between">
+        <text class="card-title">事件池</text>
+        <text class="muted small">{{pool.length}} 个</text>
+      </view>
+
+      <block wx:if="{{pool.length > 0}}">
+        <view wx:for="{{pool}}" wx:key="_id" class="ev-row">
+          <view class="ev-main">
+            <view class="row">
+              <text class="strong">{{item.text}}</text>
+              <text class="delta {{item.deltaClass}}">{{item.deltaText}}</text>
+            </view>
+            <view class="muted small">{{item.namesText}}</view>
+          </view>
+          <text class="ev-del" data-index="{{index}}" bindtap="removePool">删除</text>
+        </view>
+      </block>
+      <view wx:else class="muted small">事件池是空的</view>
+
+      <button wx:if="{{!adding}}" class="btn btn-plain btn-sm gap" bindtap="startAdd">
+        添加事件
+      </button>
+
+      <!-- 添加面板 -->
+      <view wx:if="{{adding}}" class="add-panel gap">
+        <view class="field">
+          <view class="field-label">事件说明</view>
+          <input class="field-input" value="{{formText}}" bindinput="onText"
+                 placeholder="例：踩到边界线" maxlength="60" />
+        </view>
+
+        <view class="field">
+          <view class="field-label">效果</view>
+          <view class="field-row">
+            <view class="options effect-sign">
+              <view class="option {{formSign === 'plus' ? 'option-plus' : ''}}"
+                    data-sign="plus" bindtap="pickSign">加分</view>
+              <view class="option {{formSign === 'minus' ? 'option-minus' : ''}}"
+                    data-sign="minus" bindtap="pickSign">减分</view>
+            </view>
+            <input class="field-input effect-value" type="digit" value="{{formValue}}"
+                   bindinput="onValue" placeholder="1" maxlength="2" />
+          </view>
+          <view class="field-hint">1 到 10 分，分值随抽取结果一起记入积分榜</view>
+        </view>
+
+        <view class="field">
+          <view class="row-between">
+            <view class="field-label">触发名单</view>
+            <text class="muted small">{{pickedIds.length}} 人</text>
+          </view>
+          <view class="muted small">{{pickedNames || '至少选 1 个人'}}</view>
+          <view class="pick-grid gap">
+            <view wx:for="{{roster}}" wx:key="_id"
+                  class="pick-item {{pickedIds.indexOf(item._id) >= 0 ? 'pick-on' : ''}}"
+                  data-id="{{item._id}}" bindtap="togglePick">
+              {{item.name}}<text class="pick-sub">{{item.genderText}}</text>
+            </view>
+          </view>
+          <view wx:if="{{roster.length === 0}}" class="muted small">这场活动还没有人报名</view>
+        </view>
+
+        <view class="btn-bar">
+          <button class="btn btn-ghost" bindtap="cancelAdd">取消</button>
+          <button class="btn" bindtap="confirmAdd" disabled="{{submitting}}">确认添加</button>
+        </view>
+      </view>
+    </view>
+
+    <view class="footer-spacer"></view>
+  </block>
+</view>
+
+<view wx:if="{{!loading && !failMessage}}" class="footer-bar">
+  <button class="btn btn-plain" bindtap="goLeaderboard">积分榜</button>
+</view>

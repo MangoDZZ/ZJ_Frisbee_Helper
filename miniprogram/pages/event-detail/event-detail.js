@@ -108,6 +108,10 @@ Page({
     wx.navigateTo({ url: '/pages/my-stats/my-stats?eventId=' + this.data.eventId })
   },
 
+  goRandomEvents: function () {
+    wx.navigateTo({ url: '/pages/random-events/random-events?eventId=' + this.data.eventId })
+  },
+
   cancelSignup: function () {
     const that = this
     wx.showModal({

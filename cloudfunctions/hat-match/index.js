@@ -24,15 +24,25 @@ const divisions = db.collection('divisions')
 const tournaments = db.collection('tournaments')
 const matches = db.collection('matches')
 const signups = db.collection('signups')
+// 随机事件：randomEvents 是事件池（定义），randomDraws 是已触发的记录
+const randomEvents = db.collection('randomEvents')
+const randomDraws = db.collection('randomDraws')
 
 const ok = common.ok
 const err = common.err
 const trimStr = common.trimStr
 const asInt = common.asInt
 const fetchAll = common.fetchAll
+const removeWhere = common.removeWhere
 
 const MAX_MVP = 2
 const MAX_MATCHES = 200
+
+/** 随机事件：池子上限、单次说明长度、效果绝对值上限、一次最多返回多少条触发记录 */
+const MAX_RANDOM_EVENTS = 100
+const MAX_EVENT_TEXT = 60
+const MAX_EVENT_DELTA = 10
+const MAX_DRAW_LIST = 200
 
 async function loadPublishedDivision (tournamentId) {
   const res = await divisions.where({ tournamentId: tournamentId, published: true })
@@ -227,6 +237,87 @@ function matchStatus (v) {
   return v === 'live' ? 'live' : 'finished'
 }
 
+// ---------------------------------------------------------------- 随机事件
+
+/**
+ * 校验事件池。覆盖式保存，和 setConstraints 一个路子：整份提交，不做增量，
+ * 避免两边状态不一致。
+ */
+function validateEventPool (raw, signupsById) {
+  const list = Array.isArray(raw) ? raw : []
+  if (list.length > MAX_RANDOM_EVENTS) {
+    return { error: err('INVALID_INPUT', '随机事件不要超过 ' + MAX_RANDOM_EVENTS + ' 条') }
+  }
+
+  const clean = []
+  for (let i = 0; i < list.length; i++) {
+    const c = list[i] || {}
+    const text = trimStr(c.text)
+    if (!text) return { error: err('INVALID_INPUT', '第 ' + (i + 1) + ' 条缺少事件说明') }
+    if (text.length > MAX_EVENT_TEXT) {
+      return { error: err('INVALID_INPUT', '第 ' + (i + 1) + ' 条说明不要超过 ' + MAX_EVENT_TEXT + ' 个字') }
+    }
+
+    const delta = asInt(c.delta)
+    if (delta === null || delta === 0) {
+      return { error: err('INVALID_INPUT', '第 ' + (i + 1) + ' 条的效果要是非 0 整数') }
+    }
+    if (Math.abs(delta) > MAX_EVENT_DELTA) {
+      return { error: err('INVALID_INPUT', '第 ' + (i + 1) + ' 条的效果最大 ±' + MAX_EVENT_DELTA) }
+    }
+
+    const rawIds = Array.isArray(c.signupIds) ? c.signupIds : []
+    const ids = []
+    for (let j = 0; j < rawIds.length; j++) {
+      const id = trimStr(rawIds[j])
+      if (!id) continue
+      if (!signupsById[id]) {
+        return { error: err('UNKNOWN_PLAYER', '第 ' + (i + 1) + ' 条引用了不存在的报名记录：' + id, { id: id }) }
+      }
+      if (ids.indexOf(id) < 0) ids.push(id)
+    }
+    // 触发名单至少 1 人：没有对象的加分/减分没有意义
+    if (ids.length === 0) {
+      return { error: err('INVALID_INPUT', '第 ' + (i + 1) + ' 条至少要选 1 个触发的人') }
+    }
+    clean.push({ text: text, delta: delta, signupIds: ids })
+  }
+  return { value: clean }
+}
+
+/** 已触发的记录，按时间正序（老的在前）。 */
+async function loadDraws (eventId) {
+  return fetchAll(function () {
+    return randomDraws.where({ eventId: eventId }).orderBy('createTime', 'asc')
+  }, { label: '随机事件触发记录' })
+}
+
+/**
+ * 把触发记录摊平成积分调整。
+ *
+ * 只取 signupIds 和 delta：computeStandings 只关心"谁加/减了多少"。
+ */
+function drawsToAdjustments (draws) {
+  return (draws || []).map(function (d) {
+    return { signupIds: d.signupIds || [], delta: d.delta }
+  })
+}
+
+/** 触发记录补上人名，供页面直接渲染。 */
+function decorateDraw (d, byId) {
+  return {
+    _id: d._id,
+    text: d.text,
+    delta: d.delta,
+    deltaText: (d.delta > 0 ? '+' : '') + d.delta,
+    names: (d.signupIds || []).map(function (id) {
+      const p = byId[id]
+      return p ? p.name : '(已退出)'
+    }),
+    createTime: d.createTime,
+  }
+}
+
 /** 把一条比赛记录补上队名和人名。不带 level——球员水平不公开。 */
 function decorateMatch (m, division, byId) {
   const teams = division.teams || []
@@ -400,7 +491,8 @@ const actions = {
 
     const su = await store.loadSignups(db, evt._id)
     const rows = await loadMatchesOfEvent(evt._id)
-    const standings = score.computeStandings(rows, su.byId)
+    const draws = await loadDraws(evt._id)
+    const standings = score.computeStandings(rows, su.byId, drawsToAdjustments(draws))
 
     const tourCount = await tournaments.where({ eventId: evt._id }).count()
 
@@ -411,6 +503,12 @@ const actions = {
       if (matchStatus(rows[i].status) === 'live') liveCount++
     }
 
+    // 最近触发的随机事件，让参与者也能看到"这几分是怎么来的"（趣味性全在这儿）。
+    // 倒序取最近若干条，完整历史走 listDraws。
+    const recentDraws = draws.slice(-20).reverse().map(function (d) {
+      return decorateDraw(d, su.byId)
+    })
+
     return ok({
       isOrganizer: isOrganizer,
       eventName: evt.name,
@@ -418,6 +516,7 @@ const actions = {
       liveMatchCount: liveCount,
       rows: standings.rows,
       totals: standings.totals,
+      recentDraws: recentDraws,
       rules: {
         win: score.WIN,
         loss: score.LOSS,
@@ -426,6 +525,164 @@ const actions = {
         forfeitReset: score.FORFEIT_RESET,
       },
     })
+  },
+
+  // ---------------------------------------------------------------- 随机事件
+
+  /** 事件池。只有管理身份能看——对参与者来说池子里的内容该是惊喜。 */
+  async listRandomEvents (d, r) {
+    const e = await store.loadEvent(db, d.eventId)
+    if (e.error) return e.error
+    const forbidden = requireManage(e.value, r)
+    if (forbidden) return forbidden
+
+    const su = await store.loadSignups(db, e.value._id)
+    const list = await fetchAll(function () {
+      return randomEvents.where({ eventId: e.value._id }).orderBy('createTime', 'asc')
+    }, { label: '随机事件池' })
+
+    return ok({
+      eventName: e.value.name,
+      list: list.map(function (x) {
+        return {
+          _id: x._id,
+          text: x.text,
+          delta: x.delta,
+          signupIds: x.signupIds || [],
+          names: (x.signupIds || []).map(function (id) {
+            const p = su.byId[id]
+            return p ? p.name : '(已退出)'
+          }),
+        }
+      }),
+    })
+  },
+
+  /** 覆盖式保存事件池。传空数组就是清空。 */
+  async setRandomEvents (d, r) {
+    const e = await store.loadEvent(db, d.eventId)
+    if (e.error) return e.error
+    const evt = e.value
+    const forbidden = requireManage(evt, r)
+    if (forbidden) return forbidden
+
+    const su = await store.loadSignups(db, evt._id)
+    const v = validateEventPool(d.events, su.byId)
+    if (v.error) return v.error
+
+    await removeWhere(db, 'randomEvents', { eventId: evt._id })
+    const now = Date.now()
+    for (let i = 0; i < v.value.length; i++) {
+      await randomEvents.add({
+        data: {
+          eventId: evt._id,
+          text: v.value[i].text,
+          delta: v.value[i].delta,
+          signupIds: v.value[i].signupIds,
+          createTime: now + i,   // 错开 1ms，池子顺序稳定
+          createdBy: r.openid,
+        },
+      })
+    }
+    return ok({ count: v.value.length })
+  },
+
+  /**
+   * 抽取一个随机事件并立即生效。
+   *
+   * 随机在**服务端**做：一是客户端拿不到池子（惊喜感），二是抽中的结果要落库，
+   * 落库的东西就不该由客户端说了算。抽中的事件仍留在池子里，可以继续抽。
+   */
+  async drawRandomEvent (d, r) {
+    const e = await store.loadEvent(db, d.eventId)
+    if (e.error) return e.error
+    const evt = e.value
+    const forbidden = requireManage(evt, r)
+    if (forbidden) return forbidden
+
+    const pool = await fetchAll(function () {
+      return randomEvents.where({ eventId: evt._id }).orderBy('createTime', 'asc')
+    }, { label: '随机事件池' })
+    if (pool.length === 0) {
+      return err('NO_RANDOM_EVENT', '还没有设置随机事件，请先在「随机事件」页里添加')
+    }
+
+    const picked = pool[Math.floor(Math.random() * pool.length)]
+    // 触发记录存**快照**（说明 + 效果 + 名单），不引用事件池里的 id：
+    // 池子是覆盖式保存的，id 每次都会变，引用它必然悬空。
+    const res = await randomDraws.add({
+      data: {
+        eventId: evt._id,
+        text: picked.text,
+        delta: picked.delta,
+        signupIds: (picked.signupIds || []).slice(),
+        createTime: Date.now(),
+        createdBy: r.openid,
+      },
+    })
+
+    const su = await store.loadSignups(db, evt._id)
+    return ok({
+      draw: decorateDraw({
+        _id: res._id,
+        text: picked.text,
+        delta: picked.delta,
+        signupIds: picked.signupIds || [],
+        createTime: Date.now(),
+      }, su.byId),
+      poolSize: pool.length,
+    })
+  },
+
+  /**
+   * 已触发的记录。
+   *
+   * 参与者也能看——随机事件就是给大家看个乐子的。门槛与积分榜一致：
+   * 参与者至少要有一场赛事已发布，否则连积分都还没公开。
+   */
+  async listDraws (d, r) {
+    const e = await store.loadEvent(db, d.eventId)
+    if (e.error) return e.error
+    const evt = e.value
+    const isOrganizer = roles.canManageEvent(r, evt)
+
+    const pub = await divisions.where({ eventId: evt._id, published: true }).limit(1).count()
+    if (pub.total === 0 && !isOrganizer) {
+      return err('DIVISION_NOT_PUBLISHED', '分队结果还没发布')
+    }
+
+    const su = await store.loadSignups(db, evt._id)
+    const list = await loadDraws(evt._id)
+    // 最新的排前面：页面第一眼要看到刚抽的那个
+    const out = list.slice(-MAX_DRAW_LIST).reverse().map(function (x) {
+      return decorateDraw(x, su.byId)
+    })
+    return ok({
+      eventName: evt.name,
+      isOrganizer: isOrganizer,
+      total: list.length,
+      list: out,
+    })
+  },
+
+  /** 撤销一条触发记录。积分是实时推导的，删掉记录这笔调整就跟着消失。 */
+  async removeDraw (d, r) {
+    const e = await store.loadEvent(db, d.eventId)
+    if (e.error) return e.error
+    const forbidden = requireManage(e.value, r)
+    if (forbidden) return forbidden
+
+    const drawId = trimStr(d.drawId)
+    if (!drawId) return err('INVALID_INPUT', '缺少记录 id')
+
+    const target = await randomDraws.doc(drawId).get().catch(function () { return null })
+    if (!target || !target.data) return err('NOT_FOUND', '这条记录不存在')
+    if (target.data.eventId !== e.value._id) {
+      return err('FORBIDDEN', '该记录不属于这场活动')
+    }
+
+    await randomDraws.doc(drawId).remove()
+    return ok({ removed: true })
   },
 
   /**

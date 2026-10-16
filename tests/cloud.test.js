@@ -590,6 +590,360 @@ add('删除报名：不影响别的活动', async function () {
   eq((await expectOk(as(OWNER, hatSignup, 'listAll', { eventId: b.eventId }))).list.length, 2)
 })
 
+add('自己取消报名：也要从约束和随机事件触发名单里摘掉', async function () {
+  const ev = await setupEvent(3)
+  // 取消的人既在约束里，也在随机事件触发名单里
+  await expectOk(as(OWNER, hatTeam, 'setConstraints', {
+    eventId: ev.eventId,
+    constraints: [{ type: 'apart', signupIds: [ev.ids[0], ev.ids[1]] }],
+  }))
+  await expectOk(as(OWNER, hatMatch, 'setRandomEvents', {
+    eventId: ev.eventId,
+    events: [
+      { text: '两人事件', delta: -1, signupIds: [ev.ids[0], ev.ids[1]] },
+      { text: '单人事件', delta: 2, signupIds: [ev.ids[0]] },
+    ],
+  }))
+
+  // 参与者自己取消（走 cancel，不是管理端的 removeSignup）
+  await expectOk(as('player-0', hatSignup, 'cancel', { eventId: ev.eventId }))
+  eq(mock.get('events', ev.eventId).signupCount, 2, '名额归还')
+
+  // 约束：只剩 1 人 → 整条删除
+  eq(mock.all('constraints').length, 0, '不足 2 人的约束该整条删掉')
+
+  // 随机事件：单人那条整条删除，两人那条只剩还在的人
+  const pool = mock.all('randomEvents')
+  eq(pool.length, 1, '只剩 1 人的事件该删掉')
+  eq(pool[0].text, '两人事件')
+  eq(pool[0].signupIds.length, 1)
+  eq(pool[0].signupIds[0], ev.ids[1])
+
+  // 关键：池子里没有悬空引用，所以还能正常覆盖式保存与抽取
+  const r = await expectOk(as(OWNER, hatMatch, 'drawRandomEvent', { eventId: ev.eventId }))
+  eq(r.draw.names.length, 1)
+  eq(r.draw.names[0], '球员1', '抽取只作用于还在的人')
+})
+
+// ================================================================ 随机事件
+
+/** 造一条事件定义 */
+function eventDef (ids, delta, text) {
+  return { text: text || (delta > 0 ? '奖励' : '惩罚'), delta: delta, signupIds: ids }
+}
+
+async function setPool (eventId, list, who) {
+  return expectOk(as(who || OWNER, hatMatch, 'setRandomEvents',
+    { eventId: eventId, events: list }))
+}
+
+add('随机事件：只有管理身份能设置、查看事件池和抽取', async function () {
+  const ev = await setupEvent(3)
+  const defs = [eventDef([ev.ids[0]], -1)]
+
+  // 一般用户
+  await expectErr(as('player-1', hatMatch, 'setRandomEvents',
+    { eventId: ev.eventId, events: defs }), 'FORBIDDEN', '设置')
+  await expectErr(as('player-1', hatMatch, 'listRandomEvents',
+    { eventId: ev.eventId }), 'FORBIDDEN', '查看事件池（对参与者该是惊喜）')
+  await expectErr(as('player-1', hatMatch, 'drawRandomEvent',
+    { eventId: ev.eventId }), 'FORBIDDEN', '抽取')
+  await expectErr(as('player-1', hatMatch, 'removeDraw',
+    { eventId: ev.eventId, drawId: 'x' }), 'FORBIDDEN', '撤销')
+
+  // 组织者：活动不是他建的也能管
+  grantOrganizer(ALICE)
+  await setPool(ev.eventId, defs, ALICE)
+  await expectOk(as(ALICE, hatMatch, 'listRandomEvents', { eventId: ev.eventId }))
+
+  // 管理员
+  await expectOk(as(ADMIN, hatMatch, 'listRandomEvents', { eventId: ev.eventId }))
+})
+
+add('随机事件：事件池校验', async function () {
+  const ev = await setupEvent(3)
+  const okDef = eventDef([ev.ids[0]], -1)
+
+  await expectErr(as(OWNER, hatMatch, 'setRandomEvents',
+    { eventId: ev.eventId, events: [{ text: ' ', delta: 1, signupIds: [ev.ids[0]] }] }),
+    'INVALID_INPUT', '空说明')
+  await expectErr(as(OWNER, hatMatch, 'setRandomEvents',
+    { eventId: ev.eventId, events: [{ text: 'x'.repeat(61), delta: 1, signupIds: [ev.ids[0]] }] }),
+    'INVALID_INPUT', '说明过长')
+  await expectErr(as(OWNER, hatMatch, 'setRandomEvents',
+    { eventId: ev.eventId, events: [{ text: 'x', delta: 0, signupIds: [ev.ids[0]] }] }),
+    'INVALID_INPUT', '效果为 0 没有意义')
+  await expectErr(as(OWNER, hatMatch, 'setRandomEvents',
+    { eventId: ev.eventId, events: [{ text: 'x', delta: 1.5, signupIds: [ev.ids[0]] }] }),
+    'INVALID_INPUT', '效果非整数')
+  await expectErr(as(OWNER, hatMatch, 'setRandomEvents',
+    { eventId: ev.eventId, events: [{ text: 'x', delta: 99, signupIds: [ev.ids[0]] }] }),
+    'INVALID_INPUT', '效果越界')
+  await expectErr(as(OWNER, hatMatch, 'setRandomEvents',
+    { eventId: ev.eventId, events: [{ text: 'x', delta: 1, signupIds: [] }] }),
+    'INVALID_INPUT', '触发名单不能为空')
+  await expectErr(as(OWNER, hatMatch, 'setRandomEvents',
+    { eventId: ev.eventId, events: [{ text: 'x', delta: 1, signupIds: ['ghost'] }] }),
+    'UNKNOWN_PLAYER', '引用了不存在的报名记录')
+
+  // 合法的能存下，且是覆盖式：第二次提交只剩一条
+  await setPool(ev.eventId, [okDef, eventDef([ev.ids[1]], 2, '奖励')])
+  eq(mock.all('randomEvents').length, 2)
+  await setPool(ev.eventId, [okDef])
+  eq(mock.all('randomEvents').length, 1, '覆盖式保存')
+  await setPool(ev.eventId, [])
+  eq(mock.all('randomEvents').length, 0, '空数组＝清空')
+})
+
+add('随机事件：池子为空时抽取报错', async function () {
+  const ev = await setupEvent(3)
+  await expectErr(as(OWNER, hatMatch, 'drawRandomEvent', { eventId: ev.eventId }),
+    'NO_RANDOM_EVENT')
+  eq(mock.all('randomDraws').length, 0)
+})
+
+add('随机事件：抽取会落库，并把效果计入积分榜', async function () {
+  const ctx = await setupTournament([2, 2])
+  await setPool(ctx.eventId, [eventDef([ctx.ids[0]], -2, '踩线扣分')])
+
+  const d = await expectOk(as(OWNER, hatMatch, 'drawRandomEvent', { eventId: ctx.eventId }))
+  eq(d.draw.text, '踩线扣分')
+  eq(d.draw.delta, -2)
+  eq(d.draw.deltaText, '-2')
+  eq(d.draw.names.length, 1)
+  eq(d.poolSize, 1)
+
+  const rows = mock.all('randomDraws')
+  eq(rows.length, 1, '触发记录落库')
+  eq(rows[0].eventId, ctx.eventId)
+  eq(rows[0].delta, -2)
+
+  const board = await expectOk(as(OWNER, hatMatch, 'leaderboard', { eventId: ctx.eventId }))
+  const r = board.rows.filter(function (x) { return x.signupId === ctx.ids[0] })[0]
+  eq(r.eventDelta, -2, '事件调整分')
+  eq(r.eventCount, 1)
+  eq(r.matchPoints, 0, '还没打比赛')
+  eq(r.points, -2)
+  // 别人不受影响
+  const other = board.rows.filter(function (x) { return x.signupId === ctx.ids[1] })[0]
+  eq(other.eventDelta, 0)
+  // 最近触发记录也一并返回（参与者可见的趣味信息）
+  eq(board.recentDraws.length, 1)
+  eq(board.recentDraws[0].text, '踩线扣分')
+})
+
+add('随机事件：和比赛积分合并，总分 = 比赛分 + 事件调整', async function () {
+  const ctx = await setupTournament([2, 2])
+  await expectOk(as(OWNER, hatMatch, 'saveMatch', matchData(ctx)))
+  // 参赛的两队：teams[0] 是 ids[0..1]（胜，各 +3），teams[1] 是 ids[2..3]（负，各 +1）
+  const winA = ctx.teams[0].memberIds[0]
+  const winB = ctx.teams[0].memberIds[1]
+  const loseA = ctx.teams[1].memberIds[0]
+
+  // 给「一个胜方的人」和「一个败方的人」各 +2
+  await setPool(ctx.eventId, [eventDef([winA, loseA], 2, '趣味加分')])
+  await expectOk(as(OWNER, hatMatch, 'drawRandomEvent', { eventId: ctx.eventId }))
+
+  const board = await expectOk(as(OWNER, hatMatch, 'leaderboard', { eventId: ctx.eventId }))
+  function row (id) { return board.rows.filter(function (x) { return x.signupId === id })[0] }
+
+  eq(row(winA).matchPoints, 3)
+  eq(row(winA).eventDelta, 2)
+  eq(row(winA).points, 5, '总分要把两边加起来')
+  eq(row(loseA).matchPoints, 1)
+  eq(row(loseA).eventDelta, 2)
+  eq(row(loseA).points, 3)
+  // 没被抽中的人不受影响
+  eq(row(winB).matchPoints, 3)
+  eq(row(winB).eventDelta, 0)
+  eq(row(winB).points, 3)
+
+  // 排序按最终总分：winA(5) > loseA(3) = winB(3) > 另一个败方(1)
+  eq(board.rows[0].signupId, winA, '加了事件分的排最前')
+})
+
+add('随机事件：抽取是随机的，池子里的事件都会有机会被抽到', async function () {
+  const ev = await setupEvent(3)
+  await setPool(ev.eventId, [
+    eventDef([ev.ids[0]], 1, '甲'),
+    eventDef([ev.ids[1]], 2, '乙'),
+  ])
+
+  const seen = {}
+  for (let i = 0; i < 60; i++) {
+    const d = await expectOk(as(OWNER, hatMatch, 'drawRandomEvent', { eventId: ev.eventId }))
+    seen[d.draw.text] = true
+  }
+  eq(mock.all('randomDraws').length, 60, '每次都留一条记录')
+  ok(seen['甲'] && seen['乙'], '两个事件都该被抽到过：' + JSON.stringify(Object.keys(seen)))
+})
+
+add('随机事件：撤销记录后调整分随之消失（积分是实时推导的）', async function () {
+  const ctx = await setupTournament([2, 2])
+  await setPool(ctx.eventId, [eventDef([ctx.ids[0]], -3, '扣分')])
+  const d = await expectOk(as(OWNER, hatMatch, 'drawRandomEvent', { eventId: ctx.eventId }))
+
+  let board = await expectOk(as(OWNER, hatMatch, 'leaderboard', { eventId: ctx.eventId }))
+  eq(board.rows.filter(function (x) { return x.signupId === ctx.ids[0] })[0].points, -3)
+
+  await expectOk(as(OWNER, hatMatch, 'removeDraw', {
+    eventId: ctx.eventId, drawId: d.draw._id,
+  }))
+  eq(mock.all('randomDraws').length, 0)
+
+  board = await expectOk(as(OWNER, hatMatch, 'leaderboard', { eventId: ctx.eventId }))
+  const r = board.rows.filter(function (x) { return x.signupId === ctx.ids[0] })[0]
+  eq(r.points, 0)
+  eq(r.eventDelta, 0)
+  eq(r.eventCount, 0)
+})
+
+add('随机事件：撤销的边界——缺 id、不存在、跨活动', async function () {
+  const a = await setupTournament([2, 2])
+  const b = await setupTournament([2, 2], { name: '别的活动' })
+  await setPool(a.eventId, [eventDef([a.ids[0]], 1)])
+  const d = await expectOk(as(OWNER, hatMatch, 'drawRandomEvent', { eventId: a.eventId }))
+
+  await expectErr(as(OWNER, hatMatch, 'removeDraw',
+    { eventId: a.eventId, drawId: '' }), 'INVALID_INPUT', '缺 id')
+  await expectErr(as(OWNER, hatMatch, 'removeDraw',
+    { eventId: a.eventId, drawId: 'ghost' }), 'NOT_FOUND')
+  await expectErr(as(OWNER, hatMatch, 'removeDraw',
+    { eventId: b.eventId, drawId: d.draw._id }), 'FORBIDDEN', '不属于这场活动')
+  eq(mock.all('randomDraws').length, 1, '都没删掉')
+})
+
+add('随机事件：参与者能看触发记录（含人名不含水平），但要分队已发布', async function () {
+  const ctx = await setupTournament([2, 2])
+  await setPool(ctx.eventId, [eventDef([ctx.ids[0], ctx.ids[1]], -1, '穿错颜色')])
+  await expectOk(as(OWNER, hatMatch, 'drawRandomEvent', { eventId: ctx.eventId }))
+
+  // 已发布：参与者能看
+  let d = await expectOk(as('player-0', hatMatch, 'listDraws', { eventId: ctx.eventId }))
+  eq(d.list.length, 1)
+  eq(d.list[0].text, '穿错颜色')
+  eq(d.list[0].deltaText, '-1')
+  eq(d.list[0].names.length, 2)
+  ok(JSON.stringify(d).indexOf('level') < 0, '触发记录不该带水平')
+  ok(JSON.stringify(d).indexOf('openid') < 0, '也不该带 openid')
+
+  // 撤销发布后参与者看不到了
+  await expectOk(as(OWNER, hatTeam, 'unpublish', { tournamentId: ctx.tournamentId }))
+  await expectErr(as('player-0', hatMatch, 'listDraws', { eventId: ctx.eventId }),
+    'DIVISION_NOT_PUBLISHED')
+  // 组织者仍然能看
+  await expectOk(as(OWNER, hatMatch, 'listDraws', { eventId: ctx.eventId }))
+})
+
+add('随机事件：弃赛归零会把事件调整一起归零，但数额仍然留档', async function () {
+  const ctx = await setupTournament([2, 2])
+  const victim = ctx.teams[0].memberIds[0]
+  // 弃赛的人必须不在上场名单里，所以 A 队只派另一个人上场
+  const lineupA = ctx.teams[0].memberIds.slice(1)
+
+  await setPool(ctx.eventId, [eventDef([victim], 5, '大奖')])
+  await expectOk(as(OWNER, hatMatch, 'drawRandomEvent', { eventId: ctx.eventId }))
+
+  // 第 1 场：弃赛一次
+  await expectOk(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+    participantsA: lineupA, forfeitIds: [victim],
+  })))
+
+  let board = await expectOk(as(OWNER, hatMatch, 'leaderboard', { eventId: ctx.eventId }))
+  let r = board.rows.filter(function (x) { return x.signupId === victim })[0]
+  eq(r.forfeitCount, 1, '同一场只算一次弃赛')
+  eq(r.points, 2, '还没到两次：事件 +5 与弃赛 -3 都算上')
+
+  // 第 2 场：再弃赛一次，凑满 2 次
+  const t2 = await expectOk(as(OWNER, hatTeam, 'createTournament', {
+    eventId: ctx.eventId, name: '第 2 场', teamCount: 2, attendeeIds: ctx.ids,
+  }))
+  const div2 = await expectOk(as(OWNER, hatTeam, 'saveDivision', {
+    tournamentId: t2._id, teams: ctx.teams,
+  }))
+  await expectOk(as(OWNER, hatTeam, 'publish', { tournamentId: t2._id, divisionId: div2._id }))
+  await expectOk(as(OWNER, hatMatch, 'saveMatch',
+    matchData(Object.assign({}, ctx, { tournamentId: t2._id }), {
+      participantsA: lineupA, forfeitIds: [victim],
+    })))
+
+  board = await expectOk(as(OWNER, hatMatch, 'leaderboard', { eventId: ctx.eventId }))
+  r = board.rows.filter(function (x) { return x.signupId === victim })[0]
+  eq(r.forfeitCount, 2)
+  eq(r.reset, true, '要标出归零了')
+  eq(r.points, 0, '最终积分归零（连事件调整一起）')
+  eq(r.eventDelta, 5, '事件调整的数额仍留档，能解释这笔分怎么没的')
+  eq(board.totals.eventResetCount, 1)
+})
+
+add('随机事件：删报名会把他从触发名单里摘掉，摘空就整条删除', async function () {
+  const ev = await setupEvent(4)
+  await setPool(ev.eventId, [
+    eventDef([ev.ids[0], ev.ids[1]], -1, '两人事件'),
+    eventDef([ev.ids[0]], 2, '单人事件'),
+  ])
+
+  const d = await expectOk(as(OWNER, hatSignup, 'removeSignup',
+    { eventId: ev.eventId, signupId: ev.ids[0] }))
+  eq(d.randomEventsTouched, 2, '两条事件都涉及他')
+
+  const left = mock.all('randomEvents')
+  eq(left.length, 1, '只剩 1 人的那条被删掉')
+  eq(left[0].text, '两人事件')
+  eq(left[0].signupIds.length, 1)
+  eq(left[0].signupIds[0], ev.ids[1], '留下的是别人')
+})
+
+add('随机事件：清理测试数据时同样摘除，不留悬空引用', async function () {
+  // 上限 4、已有 2 个真人 → 正好还能塞 2 个测试报名
+  const ev = await setupEvent(2)
+  const added = await expectOk(as(ADMIN, hatSignup, 'seedTestSignups',
+    { eventId: ev.eventId, count: 2 }))
+  eq(added.added, 2)
+
+  const testIds = mock.all('signups')
+    .filter(function (s) { return s.isTest })
+    .map(function (s) { return s._id })
+  await setPool(ev.eventId, [
+    eventDef(testIds.concat([ev.ids[0]]), -1, '混着真人和测试'),
+    eventDef([testIds[0]], 1, '只有测试'),
+  ])
+
+  await expectOk(as(ADMIN, hatSignup, 'clearTestSignups', { eventId: ev.eventId }))
+  const left = mock.all('randomEvents')
+  eq(left.length, 1, '纯测试的那条被删掉')
+  eq(left[0].signupIds.length, 1, '混着的只剩真人')
+  eq(left[0].signupIds[0], ev.ids[0])
+})
+
+add('随机事件：删活动会连带清掉事件池与触发记录', async function () {
+  const ctx = await setupTournament([2, 2])
+  await setPool(ctx.eventId, [eventDef([ctx.ids[0]], 1)])
+  await expectOk(as(OWNER, hatMatch, 'drawRandomEvent', { eventId: ctx.eventId }))
+  eq(mock.all('randomEvents').length, 1)
+  eq(mock.all('randomDraws').length, 1)
+
+  await expectOk(as(OWNER, hatEvent, 'remove', { eventId: ctx.eventId }))
+  eq(mock.all('randomEvents').length, 0, '事件池要清掉')
+  eq(mock.all('randomDraws').length, 0, '触发记录要清掉')
+})
+
+add('随机事件：触发名单里有人退出后，抽取只作用于还在的人', async function () {
+  const ev = await setupEvent(4)
+  await setPool(ev.eventId, [eventDef([ev.ids[0], ev.ids[1]], -1)])
+
+  // 直接删掉报名会被拦（没进检录，所以这里能删）
+  await expectOk(as(OWNER, hatSignup, 'removeSignup',
+    { eventId: ev.eventId, signupId: ev.ids[1] }))
+
+  const d = await expectOk(as(OWNER, hatMatch, 'drawRandomEvent', { eventId: ev.eventId }))
+  eq(d.draw.names.length, 1)
+  eq(d.draw.names[0], '球员0', '只剩还在的人')
+
+  const board = await expectOk(as(OWNER, hatMatch, 'leaderboard', { eventId: ev.eventId }))
+  eq(board.rows.filter(function (x) { return x.signupId === ev.ids[0] })[0].points, -1)
+})
+
 // ================================================================ 赛事
 
 /** 建活动 + 报名 N 人，返回 { eventId, ids } */

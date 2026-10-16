@@ -1,0 +1,100 @@
+.draw-btn {
+  line-height: 3;
+  font-size: 32rpx;
+}
+
+/* 事件行：说明 + 效果 + 名单，右侧是操作 */
+.ev-row {
+  display: flex;
+  align-items: center;
+  padding: 18rpx 0;
+  border-bottom: 2rpx solid #f4f5f7;
+}
+.ev-row:last-child { border-bottom: none; }
+.ev-main {
+  flex: 1;
+  min-width: 0;
+}
+.ev-side {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  padding-left: 16rpx;
+}
+.ev-undo {
+  margin-top: 6rpx;
+  color: #b4322c;
+  font-size: 24rpx;
+}
+.ev-del {
+  flex: none;
+  color: #b4322c;
+  font-size: 24rpx;
+  padding-left: 20rpx;
+}
+
+/* 加分绿、减分红：一眼分清是奖励还是惩罚 */
+.delta {
+  margin-left: 12rpx;
+  padding: 0 12rpx;
+  border-radius: 6rpx;
+  font-size: 24rpx;
+  font-weight: 600;
+}
+.delta-plus {
+  background: #e7f4ec;
+  color: #2f8f4e;
+}
+.delta-minus {
+  background: #fdeaea;
+  color: #b4322c;
+}
+
+.add-panel {
+  background: #f8f9fa;
+  border-radius: 12rpx;
+  padding: 24rpx;
+}
+
+/* 效果那一行：方向占满剩余宽度，数值窄一些 */
+.effect-sign {
+  flex: 1;
+}
+.effect-value {
+  flex: none;
+  width: 140rpx;
+  text-align: center;
+}
+.option-plus {
+  background: #2f8f4e;
+  color: #fff;
+}
+.option-minus {
+  background: #b4322c;
+  color: #fff;
+}
+
+/* 触发名单选人（和 manage 页的选人面板同一套样子） */
+.pick-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14rpx;
+}
+.pick-item {
+  padding: 12rpx 22rpx;
+  border-radius: 10rpx;
+  background: #fff;
+  border: 2rpx solid #e5e7eb;
+  font-size: 26rpx;
+}
+.pick-on {
+  background: var(--theme);
+  border-color: var(--theme);
+  color: #fff;
+}
+.pick-sub {
+  font-size: 20rpx;
+  opacity: 0.7;
+  margin-left: 8rpx;
+}

@@ -65,12 +65,13 @@ function asArray (v) { return Array.isArray(v) ? v : [] }
 /**
  * @param {Array}  matches     该活动下所有赛事的比赛记录
  * @param {object} signupsById 活动的全部报名 { [signupId]: { name, gender } }
+ * @param {Array}  [adjustments] 随机事件调整 [{ signupIds: [...], delta: N }]
  * @returns {{ rows: Array, totals: object }}
  *
  * 行里不带 level：积分榜对所有人可见，而球员水平是不公开的。
  * 也不带队伍——同一个人在不同赛事属于不同队，汇总层面没有唯一队伍。
  */
-function computeStandings (matches, signupsById) {
+function computeStandings (matches, signupsById, adjustments) {
   const byId = signupsById || {}
 
   // 先给每个报名的人建一行，积分 0。一场没打的人也要出现在榜上。
@@ -85,6 +86,11 @@ function computeStandings (matches, signupsById) {
       name: p ? p.name : '(已退出)',
       gender: p ? p.gender : 'U',
       points: 0,
+      // 比赛得来的分与随机事件调整分分开留档，前端可以标"其中事件 +N"
+      matchPoints: 0,
+      eventDelta: 0,
+      eventCount: 0,
+      reset: false,
       played: 0,
       won: 0,
       lost: 0,
@@ -154,9 +160,40 @@ function computeStandings (matches, signupsById) {
     }
   }
 
+  // 比赛得来的分在这里定格：随机事件调整和"弃赛归零"都在它之上再算。
+  rows.forEach(function (row) { row.matchPoints = row.points })
+
+  // ---- 随机事件调整 ----
+  // adjustments 是 [{ signupIds: [...], delta: N }]，由已触发的随机事件摊平而来。
+  // 名单里已经不在报名表上的人直接忽略（名单被删过），不凭空造行。
+  // 同一条事件里重复出现的人只算一次——否则一个手滑的重复能把分数加两遍。
+  const adjs = asArray(adjustments)
+  for (let i = 0; i < adjs.length; i++) {
+    const a = adjs[i] || {}
+    const delta = Number(a.delta)
+    if (!isFinite(delta) || delta === 0) continue
+    const targets = asArray(a.signupIds)
+    const seen = {}
+    for (let j = 0; j < targets.length; j++) {
+      const id = targets[j]
+      if (!id || seen[id]) continue
+      seen[id] = true
+      const row = rowOf[id]
+      if (!row) continue
+      row.points += delta
+      row.eventDelta += delta
+      row.eventCount++
+    }
+  }
+
   // 活动级规则：累计弃赛两次及以上，最终积分归零。
+  // 连随机事件调整一起归零——规则说的是"积分归零"，那就该看到 0 而不是"归零后又加回来"。
+  // 事件调整的数额仍然留在 eventDelta 里，前端可以解释这笔分是怎么没的。
   rows.forEach(function (row) {
-    if (row.forfeitCount >= FORFEIT_RESET) row.points = 0
+    if (row.forfeitCount >= FORFEIT_RESET) {
+      row.reset = true
+      row.points = 0
+    }
   })
 
   rows.sort(function (a, b) {
@@ -185,6 +222,8 @@ function computeStandings (matches, signupsById) {
       playerCount: rows.length,
       matchCount: counted,
       playedCount: rows.filter(function (r) { return r.played > 0 }).length,
+      eventCount: adjs.length,
+      eventResetCount: rows.filter(function (r) { return r.reset }).length,
     },
   }
 }

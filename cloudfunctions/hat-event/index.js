@@ -260,7 +260,11 @@ const actions = {
     if (forbidden) return forbidden
 
     const id = e.value._id
-    const collections = ['signups', 'constraints', 'divisions', 'matches', 'tournaments']
+    const collections = [
+      'signups', 'constraints', 'divisions', 'matches', 'tournaments',
+      // 随机事件的定义和触发记录也挂在活动上，一并清掉
+      'randomEvents', 'randomDraws',
+    ]
     for (let i = 0; i < collections.length; i++) {
       await removeWhere(db, collections[i], { eventId: id })
     }

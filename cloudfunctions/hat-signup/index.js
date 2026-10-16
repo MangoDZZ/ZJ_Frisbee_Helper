@@ -130,6 +130,31 @@ async function stripFromConstraints (eventId, signupIds) {
   return touched
 }
 
+/**
+ * 把这些人从随机事件的**触发名单**里摘掉；摘完一个人都不剩的整条删除。
+ *
+ * 不摘的话，那条事件以后被抽中时会**静默少算几个人**（名单里有的人已经不存在了），
+ * 组织者看着是"这几个人各扣 1 分"，实际只扣了还在的人——这种错最难发现。
+ * 已触发的记录不动：那是历史快照，当时确实发生了。
+ */
+async function stripFromRandomEvents (eventId, signupIds) {
+  const col = db.collection('randomEvents')
+  const list = await fetchAll(function () {
+    return col.where({ eventId: eventId }).field({ signupIds: true })
+  }, { label: '随机事件池' })
+
+  let touched = 0
+  for (let i = 0; i < list.length; i++) {
+    const ids = list[i].signupIds || []
+    const kept = ids.filter(function (id) { return signupIds.indexOf(id) < 0 })
+    if (kept.length === ids.length) continue
+    if (kept.length === 0) await col.doc(list[i]._id).remove()
+    else await col.doc(list[i]._id).update({ data: { signupIds: kept } })
+    touched++
+  }
+  return touched
+}
+
 function validateSignup (d) {
   const name = trimStr(d.name)
   if (!name) return { error: err('INVALID_INPUT', '请填写姓名或昵称') }
@@ -235,6 +260,10 @@ const actions = {
 
   /**
    * 取消报名。先删明细成功再把名额加回，顺序反了会在并发下把名额加多。
+   *
+   * 删掉的人也要从分队约束和随机事件的触发名单里摘掉——否则后面覆盖式保存那两份数据时
+   * 会报"引用了不存在的报名记录"，抽取随机事件还会静默少算几个人。
+   * （已被赛事赛前检录的人不在这里拦：那是"联系组织者"的事，见 README。）
    */
   async cancel (d, r) {
     const e = await store.loadEvent(db, d.eventId)
@@ -251,8 +280,12 @@ const actions = {
     if (!mine.data || mine.data.length === 0) {
       return err('NOT_FOUND', '你还没有报名这场活动')
     }
+    const signupId = mine.data[0]._id
 
-    const removed = await signups.doc(mine.data[0]._id).remove()
+    await stripFromConstraints(evt._id, [signupId])
+    await stripFromRandomEvents(evt._id, [signupId])
+
+    const removed = await signups.doc(signupId).remove()
     if (!removed.stats || removed.stats.removed !== 1) {
       return err('CONFLICT', '取消失败，请重试')
     }
@@ -485,6 +518,7 @@ const actions = {
     }
 
     const constraintsTouched = await stripFromConstraints(evt._id, [signupId])
+    const randomEventsTouched = await stripFromRandomEvents(evt._id, [signupId])
 
     // 先删明细再归还名额，顺序反了会在并发下把名额加多。
     const removed = await signups.doc(signupId).remove()
@@ -494,7 +528,12 @@ const actions = {
     await events.doc(evt._id).update({
       data: { remaining: _.inc(1), signupCount: _.inc(-1) },
     })
-    return ok({ removed: true, name: name, constraintsTouched: constraintsTouched })
+    return ok({
+      removed: true,
+      name: name,
+      constraintsTouched: constraintsTouched,
+      randomEventsTouched: randomEventsTouched,
+    })
   },
 
   /**
@@ -578,6 +617,7 @@ const actions = {
     }
 
     await stripFromConstraints(evt._id, testIds)
+    await stripFromRandomEvents(evt._id, testIds)
 
     // 先删明细再归还名额，顺序反了会在并发下把名额加多。
     const removed = await removeWhere(db, 'signups', { eventId: evt._id, isTest: true })

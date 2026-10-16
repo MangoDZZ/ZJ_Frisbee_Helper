@@ -258,6 +258,10 @@ Page({
     wx.navigateTo({ url: '/pages/event-edit/event-edit?eventId=' + this.data.eventId })
   },
 
+  goRandomEvents: function () {
+    wx.navigateTo({ url: '/pages/random-events/random-events?eventId=' + this.data.eventId })
+  },
+
   // ---------------- 测试数据（仅管理员） ----------------
 
   seedTest: function (e) {

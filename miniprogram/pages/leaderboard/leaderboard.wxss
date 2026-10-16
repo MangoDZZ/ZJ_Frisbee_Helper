@@ -90,3 +90,34 @@
   font-weight: 600;
   color: var(--theme);
 }
+
+/* 累计弃赛归零：这是解释"为什么分没了"，得让人看见 */
+.reset-text { color: #b4322c; }
+
+/* 随机事件列表 */
+.draw-row {
+  display: flex;
+  align-items: center;
+  padding: 16rpx 0;
+  border-bottom: 2rpx solid #f4f5f7;
+}
+.draw-row:last-child { border-bottom: none; }
+.draw-main {
+  flex: 1;
+  min-width: 0;
+}
+.delta {
+  margin-left: 12rpx;
+  padding: 0 12rpx;
+  border-radius: 6rpx;
+  font-size: 24rpx;
+  font-weight: 600;
+}
+.delta-plus {
+  background: #e7f4ec;
+  color: #2f8f4e;
+}
+.delta-minus {
+  background: #fdeaea;
+  color: #b4322c;
+}
