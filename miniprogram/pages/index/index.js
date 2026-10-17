@@ -59,16 +59,12 @@ Page({
 })
 
 function decorate (e) {
-  const expired = fmt.isSignupExpired(e)
-  const full = e.remaining <= 0
+  // 状态泡泡只取一个：报名中但已截止/已满足额时，不能再并排挂一个"报名中"
+  const state = fmt.eventState(e)
   return Object.assign({}, e, {
     timeText: fmt.formatRange(e.startTime, e.endTime),
-    statusText: fmt.statusText(e.status),
-    statusClass: 'tag-' + e.status,
-    // 报名中但已截止或已满，要给出明确原因，否则用户点进去才知道报不了。
-    hintText: e.status !== 'open' ? ''
-      : full ? '名额已满'
-        : expired ? '报名已截止' : '',
+    stateText: state.text,
+    stateClass: state.className,
     countText: e.signupCount + '/' + e.capacity + ' 人',
     pastClass: fmt.isPast(e) ? 'card-past' : '',
   })

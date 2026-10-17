@@ -13,18 +13,20 @@
   <block wx:elif="{{list.length > 0}}">
     <view wx:for="{{list}}" wx:key="_id" class="card {{item.pastClass}}"
           data-id="{{item._id}}" bindtap="openEvent">
-      <view class="row-between">
+      <view class="card-head">
         <text class="card-title">{{item.name}}</text>
-        <text class="tag {{item.statusClass}}">{{item.statusText}}</text>
+        <!-- 所有泡泡集中在右上角：状态 + 已报名 + 我创建。
+             状态泡泡只有一个，所以不会出现"报名中"和"报名已截止"并存。
+             卡片本身有 bindtap，泡泡不可点，不需要 catchtap。 -->
+        <view class="tag-cluster">
+          <text class="tag {{item.stateClass}}">{{item.stateText}}</text>
+          <text wx:if="{{item.signed}}" class="tag tag-mine">已报名</text>
+          <text wx:if="{{item.isOwner}}" class="tag">我创建</text>
+        </view>
       </view>
       <view class="card-meta">{{item.timeText}}</view>
       <view wx:if="{{item.location}}" class="card-meta">{{item.location}}</view>
-      <view class="row gap">
-        <text class="card-meta">{{item.countText}} · {{item.teamCount}} 队</text>
-        <text wx:if="{{item.signed}}" class="tag tag-mine">已报名</text>
-        <text wx:if="{{item.isOwner}}" class="tag">我创建</text>
-        <text wx:if="{{item.hintText}}" class="tag tag-full">{{item.hintText}}</text>
-      </view>
+      <view class="card-meta">{{item.countText}} · {{item.teamCount}} 队</view>
       <!-- 组织者和管理员能管所有活动，这里给一条直达管理台的入口。
            卡片本身有 bindtap="openEvent"，所以必须用 catchtap 挡掉冒泡。 -->
       <view wx:if="{{item.canManage}}" class="gap">

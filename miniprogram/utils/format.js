@@ -93,6 +93,36 @@ function isPast (evt) {
   return !!t && Date.now() > t
 }
 
+/**
+ * 活动列表上那个状态泡泡。
+ *
+ * **永远只返回一个状态**：`status` 还停在 open、但报名其实已经截止或名额已满时，
+ * 再并排显示"报名中"就是自相矛盾（用户在列表里看到"报名中"，点进去才知道报不了）。
+ * 所以这里把"实际能不能报名"算进状态本身，优先级：
+ *   非 open（报名关闭） → 名额已满 → 报名已截止 → 报名中
+ *
+ * 返回 { text, className }，className 直接拿去拼 class。
+ */
+function eventState (evt) {
+  if (!evt) return { text: '', className: '' }
+  if (evt.status !== 'open') {
+    return { text: statusText(evt.status), className: 'tag-' + evt.status }
+  }
+  // 不能直接 Number(evt.remaining)：Number(null) / Number('') / Number(undefined)
+  // 里前两个都是 0，会把"没拿到剩余名额"误判成"名额已满"。
+  const raw = evt.remaining
+  if (raw !== null && raw !== undefined && raw !== '') {
+    const remaining = Number(raw)
+    if (isFinite(remaining) && remaining <= 0) {
+      return { text: '名额已满', className: 'tag-full' }
+    }
+  }
+  if (isSignupExpired(evt)) {
+    return { text: '报名已截止', className: 'tag-full' }
+  }
+  return { text: '报名中', className: 'tag-open' }
+}
+
 module.exports = {
   LEVEL_TEXT: LEVEL_TEXT,
   toTimestamp: toTimestamp,
@@ -105,4 +135,5 @@ module.exports = {
   genderText: genderText,
   isSignupExpired: isSignupExpired,
   isPast: isPast,
+  eventState: eventState,
 }

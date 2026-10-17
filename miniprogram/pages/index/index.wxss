@@ -18,6 +18,33 @@
 /* 已结束的活动压低视觉权重，但仍可点开看分队结果 */
 .card-past { opacity: 0.6; }
 
+/* 卡片顶部：标题在左，所有泡泡集中在右上 */
+.card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12rpx;
+  margin-bottom: 10rpx;
+}
+.card-head .card-title {
+  flex: 1;
+  min-width: 0;
+  /* 标题可能很长，让它换行；不要把泡泡挤到第二行去 */
+  margin-bottom: 0;
+  line-height: 1.35;
+}
+.tag-cluster {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8rpx;
+  /* 最多占 62%，长标题还有地方换行；泡泡多了就在簇内换行，仍然贴着右上 */
+  max-width: 62%;
+}
+/* 全局 .tag 带 margin-right，在 flex 簇里会和 gap 叠加、让最后一个泡泡离右边有空隙 */
+.tag-cluster .tag { margin-right: 0; }
+
 .fab {
   position: fixed;
   right: 40rpx;

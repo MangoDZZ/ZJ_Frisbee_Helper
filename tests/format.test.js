@@ -133,6 +133,72 @@ test('文案：水平 / 状态 / 性别', function () {
   eq(fmt.genderText(''), '未填')
 })
 
+// ---------------------------------------------------------------- 活动列表的状态泡泡
+
+/** 造一个活动：默认还能报名 */
+function evt (over) {
+  const now = Date.now()
+  return Object.assign({
+    status: 'open',
+    remaining: 5,
+    capacity: 10,
+    signupCount: 5,
+    startTime: now + 86400000,
+    signupDeadline: now + 3600000,
+  }, over || {})
+}
+
+test('状态泡泡：正常报名中', function () {
+  const s = fmt.eventState(evt())
+  eq(s.text, '报名中')
+  eq(s.className, 'tag-open')
+})
+
+test('状态泡泡：报名中但已截止 → 只显示"报名已截止"，不并排"报名中"', function () {
+  const s = fmt.eventState(evt({ signupDeadline: Date.now() - 1000 }))
+  eq(s.text, '报名已截止', '这时候还给"报名中"就是自相矛盾')
+  eq(s.className, 'tag-full')
+})
+
+test('状态泡泡：名额已满 → 只显示"名额已满"', function () {
+  const s = fmt.eventState(evt({ remaining: 0 }))
+  eq(s.text, '名额已满')
+  eq(s.className, 'tag-full')
+})
+
+test('状态泡泡：既满又截止时优先"名额已满"（更具体）', function () {
+  const s = fmt.eventState(evt({ remaining: 0, signupDeadline: Date.now() - 1000 }))
+  eq(s.text, '名额已满')
+})
+
+test('状态泡泡：报名关闭时按状态显示，不再评估截止/满员', function () {
+  const s = fmt.eventState(evt({ status: 'closed', remaining: 0 }))
+  eq(s.text, '报名关闭')
+  eq(s.className, 'tag-closed')
+})
+
+test('状态泡泡：只可能是一个状态——返回里没有第二个泡泡的字段', function () {
+  const s = fmt.eventState(evt({ signupDeadline: Date.now() - 1000 }))
+  eq(Object.keys(s).sort().join(','), 'className,text', '返回结构决定了不可能并排两个状态')
+})
+
+test('状态泡泡：没设截止时间时以开始时间为界', function () {
+  const now = Date.now()
+  eq(fmt.eventState(evt({ signupDeadline: null, startTime: now - 1000 })).text, '报名已截止')
+  eq(fmt.eventState(evt({ signupDeadline: null, startTime: now + 100000 })).text, '报名中')
+})
+
+test('状态泡泡：remaining 缺失或非法时不误判为满员', function () {
+  eq(fmt.eventState(evt({ remaining: undefined })).text, '报名中')
+  eq(fmt.eventState(evt({ remaining: 'abc' })).text, '报名中')
+  eq(fmt.eventState(evt({ remaining: null })).text, '报名中')
+})
+
+test('状态泡泡：空活动返回空串，不抛错', function () {
+  eq(fmt.eventState(null).text, '')
+  eq(fmt.eventState(undefined).className, '')
+})
+
 // ---------------------------------------------------------------- 汇总
 
 console.log('')
