@@ -125,9 +125,10 @@ const actions = {
       return err('INVALID_INPUT',
         '已有 ' + evt.signupCount + ' 人报名，人数上限不能低于这个数')
     }
-    if (evt.status === 'divided') {
-      return err('INVALID_STATE', '已分队的活动不能再改设置，请先撤销分队')
-    }
+    // 注：这里原来还有一道「已分队就不能改设置」的判断，但它靠 evt.status === 'divided'，
+    // 而活动状态只会是 open/closed（"已分队"是赛事级的，见 tournaments.status），
+    // 永远不成立。真正需要拦的"改了会让已有数据对不上"的情况，在各赛事那边按具体操作拦
+    // （比如已录比赛就不能改检录名单）。改活动自身的设置不会让任何引用失效。
 
     // capacity 变了要同步 remaining，否则名额会算错。
     const patch = Object.assign({}, v.value, {
@@ -243,9 +244,8 @@ const actions = {
     if (e.error) return e.error
     const forbidden = requireManage(e.value, r)
     if (forbidden) return forbidden
-    if (e.value.status === 'divided') {
-      return err('INVALID_STATE', '已分队的活动不能重开报名，请先撤销分队')
-    }
+    // 重开报名只是让新人能报名；已经在各赛事检录/分队里的人不受影响，所以不拦。
+    // （原来这里靠 evt.status === 'divided' 拦，但那个值永远不成立，见 update 里的说明。）
     await events.doc(e.value._id).update({
       data: { status: 'open', updateTime: Date.now() },
     })

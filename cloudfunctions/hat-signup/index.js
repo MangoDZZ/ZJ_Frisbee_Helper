@@ -200,8 +200,7 @@ const actions = {
     const evt = e.value
 
     if (evt.status !== 'open') {
-      return err('SIGNUP_CLOSED',
-        evt.status === 'divided' ? '活动已分队，无法报名' : '报名已关闭')
+      return err('SIGNUP_CLOSED', '报名已关闭')
     }
     if (evt.signupDeadline && Date.now() > evt.signupDeadline) {
       return err('SIGNUP_CLOSED', '报名已截止')
@@ -263,16 +262,17 @@ const actions = {
    *
    * 删掉的人也要从分队约束和随机事件的触发名单里摘掉——否则后面覆盖式保存那两份数据时
    * 会报"引用了不存在的报名记录"，抽取随机事件还会静默少算几个人。
-   * （已被赛事赛前检录的人不在这里拦：那是"联系组织者"的事，见 README。）
+   *
+   * 已经被某场赛事**赛前检录**的人不能自己取消：赛事、分队和比赛记录都按检录名单引用
+   * signupId，人一删就留下悬空引用。这里和 removeSignup 是同一条判定。
+   *
+   * 注：event.status 只会是 open/closed，**没有 divided**（"已分队"是赛事级的状态，
+   * 见 tournaments.status）。所以这里不能靠活动状态来判断。
    */
   async cancel (d, r) {
     const e = await store.loadEvent(db, d.eventId)
     if (e.error) return e.error
     const evt = e.value
-
-    if (evt.status === 'divided') {
-      return err('INVALID_STATE', '活动已分队，取消报名请联系组织者')
-    }
 
     const mine = await signups.where({
       eventId: evt._id, openid: r.openid, status: 'signed',
@@ -281,6 +281,14 @@ const actions = {
       return err('NOT_FOUND', '你还没有报名这场活动')
     }
     const signupId = mine.data[0]._id
+
+    const blocking = await tournamentsUsing(evt._id, [signupId])
+    if (blocking.length > 0) {
+      return err('SIGNUP_IN_USE',
+        '你已经在「' + blocking.map(function (t) { return t.name }).join('」「') +
+        '」的赛前检录名单里，取消报名请联系组织者把你移出检录名单。',
+        { tournamentIds: blocking.map(function (t) { return t._id }) })
+    }
 
     await stripFromConstraints(evt._id, [signupId])
     await stripFromRandomEvents(evt._id, [signupId])
@@ -371,7 +379,8 @@ const actions = {
     const evt = e.value
     const forbidden = requireManage(evt, r)
     if (forbidden) return forbidden
-    if (evt.status === 'divided') return err('INVALID_STATE', '活动已分队，不能再导入名单')
+    // 导入只是往活动名单里加人，不会让任何已存在的赛事/分队/比赛失效
+    // （那些引用的是各自赛事的检录名单），所以任何状态下都允许。
 
     const fileID = trimStr(d.fileID)
     if (!fileID || fileID.length > 512) return err('INVALID_INPUT', '缺少导入文件')

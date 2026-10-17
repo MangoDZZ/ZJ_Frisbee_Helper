@@ -52,8 +52,9 @@
       </view>
     </view>
 
-    <!-- 外部名单导入 -->
-    <view wx:if="{{event.status !== 'divided'}}" class="card import-card">
+    <!-- 外部名单导入。任何状态下都能导入：它只往活动名单里加人，
+         不会让已有赛事的检录/分队/比赛记录失效。 -->
+    <view class="card import-card">
       <view class="row-between">
         <text class="card-title">导入名单</text>
         <text class="tag">活动层</text>

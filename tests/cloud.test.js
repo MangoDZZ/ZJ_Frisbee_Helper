@@ -383,6 +383,28 @@ add('并发重复取消不会把名额加多', async function () {
   eq(mock.get('events', id).signupCount, 0)
 })
 
+add('自己取消报名：已被赛前检录时拒绝，移出检录后才能取消', async function () {
+  const ev = await setupEvent(4)
+  const t = await expectOk(as(OWNER, hatTeam, 'createTournament', {
+    eventId: ev.eventId, name: '第 1 场', teamCount: 2, attendeeIds: ev.ids,
+  }))
+
+  // player-0 在检录名单里 → 不能自己取消，也不会留下半个操作
+  const err = await expectErr(as('player-0', hatSignup, 'cancel', { eventId: ev.eventId }),
+    'SIGNUP_IN_USE', '在检录名单里')
+  ok(err.message.indexOf('第 1 场') >= 0, '错误信息要指出是哪场赛事：' + err.message)
+  eq(mock.all('signups').length, 4, '人数没变')
+  eq(mock.get('events', ev.eventId).signupCount, 4, '名额没变')
+
+  // 组织者把他移出检录名单后，就能自己取消了
+  await expectOk(as(OWNER, hatTeam, 'updateTournament', {
+    tournamentId: t._id, name: '第 1 场', teamCount: 2, attendeeIds: ev.ids.slice(1),
+  }))
+  await expectOk(as('player-0', hatSignup, 'cancel', { eventId: ev.eventId }))
+  eq(mock.all('signups').length, 3)
+  eq(mock.get('events', ev.eventId).signupCount, 3)
+})
+
 // ================================================================ 隐私与权限
 
 add('参与者拿不到别人的报名信息（含手机号）', async function () {

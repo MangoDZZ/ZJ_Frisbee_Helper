@@ -33,8 +33,8 @@
       <view class="btn-bar gap">
         <button wx:if="{{canSignup}}" class="btn btn-plain btn-sm" bindtap="goSignup">修改信息</button>
         <button class="btn btn-ghost btn-sm" bindtap="goMyStats">我的数据</button>
-        <button wx:if="{{event.status !== 'divided'}}" class="btn btn-danger btn-sm"
-                bindtap="cancelSignup">取消报名</button>
+        <!-- 能不能取消由云函数判定（已被某场赛事检录的话会提示联系组织者） -->
+        <button class="btn btn-danger btn-sm" bindtap="cancelSignup">取消报名</button>
       </view>
     </view>
 
