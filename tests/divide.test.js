@@ -6,7 +6,7 @@
  *   node tests/divide.test.js
  */
 
-const { divide, ERR, WARN, STAR_LEVEL } = require('../miniprogram/utils/divide.js')
+const { divide, ERR, WARN, STAR_LEVEL, weightedCost } = require('../miniprogram/utils/divide.js')
 
 // ---------------------------------------------------------------- 测试框架
 
@@ -152,6 +152,13 @@ function checkInvariants (res, players, label) {
   tag + '代价出现 NaN/Infinity：' + JSON.stringify(cb))
   ok(cb.size >= 0 && cb.gender >= 0 && cb.star >= 0 && cb.level >= 0,
     tag + '代价分项不应为负')
+
+  // 展示的明细和用来择优的总分必须是同一套公式。两处各写一遍代价算法时，
+  // 改权重漏改一处就会出现"明细看着没问题、实际排序按另一套权重"的静默错误。
+  // 明细是保留三位小数的，所以按权重放大后允许这点舍入误差。
+  const rounded = weightedCost(cb) // costBreakdown 里已有 total，这里只用四个分项
+  ok(Math.abs(rounded - cb.total) <= 0.6,
+    tag + '分项加权和 ' + rounded.toFixed(3) + ' 与总代价 ' + cb.total + ' 对不上')
 }
 
 function sizes (res) {

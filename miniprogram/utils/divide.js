@@ -25,10 +25,7 @@ const STAR_LEVEL = 5
 // 水平只能近似，所以 50:100 表示"宁可水平差一点，也不用性别失衡去换水平收益"。
 // 换算：1 人的人数偏差 = 50；1 个性别偏差 = 100；1 个明星偏差 = 100；
 // 水平项是 (总水平 - 人数×μ)² / μ²，即"偏离量折成几人份"，μ=3 时偏离 1 档 = 5.6。
-const W_SIZE = 50
-const W_GENDER = 100
-const W_STAR = 100
-const W_LEVEL = 50
+const WEIGHTS = { size: 50, gender: 100, star: 100, level: 50 }
 
 const CLASSES = ['F', 'M', 'U']
 
@@ -163,49 +160,57 @@ function undoLastPod (team, pod) {
  * 人数项必须单独设。"男女各自均衡则总人数必然均衡"是错的：各性别的余数可能
  * 落在同一队上（5 女 10 男分 8 队时，女有 5 个余数队、男有 2 个，重叠的那队就是
  * 3 人），而 genderTerm 对重叠与不重叠给出完全相同的代价，分不出好坏。
+ *
+ * 四项偏差只在 `costTerms` 里算，加权只在 `weightedCost` 里做：单队增量、
+ * 全队求和、页面展示的 `costBreakdown` 都从这两处派生。分开各写一遍的话，
+ * 改权重时漏改一处，代价和明细就会对不上——而这种错不报错，只让分队悄悄变差。
+ *
+ * @param {object} [out] 复用结果对象。落位阶段每个 pod 试放都要算两次，是全程最热
+ *   的一段，传进来就省掉每次分配。
  */
-function teamCost (team, targets, mu, invMuSq) {
-  const dn = team.size - targets.size
-  const size = dn * dn
+function costTerms (t, targets, mu, invMuSq, out) {
+  const o = out || {}
+  const dn = t.size - targets.size
+  o.size = dn * dn
   let gender = 0
   for (let c = 0; c < CLASSES.length; c++) {
     const cls = CLASSES[c]
-    const d = team.count[cls] - targets.count[cls]
+    const d = t.count[cls] - targets.count[cls]
     gender += d * d
   }
-  const ds = team.star - targets.star
-  const star = ds * ds
-  const dl = team.levelSum - team.size * mu
-  const level = dl * dl * invMuSq
-  return W_SIZE * size + W_GENDER * gender + W_STAR * star + W_LEVEL * level
+  o.gender = gender
+  const ds = t.star - targets.star
+  o.star = ds * ds
+  const dl = t.levelSum - t.size * mu
+  o.level = dl * dl * invMuSq
+  return o
 }
 
+/** 四个项按权重合成一个可比较的数字。**权重只在这一处参与运算。** */
+function weightedCost (terms) {
+  return WEIGHTS.size * terms.size + WEIGHTS.gender * terms.gender +
+    WEIGHTS.star * terms.star + WEIGHTS.level * terms.level
+}
+
+// 单队代价的暂存区。整段算法单线程、无回调、不递归，不会被重入踩到。
+const TEAM_TERMS = { size: 0, gender: 0, star: 0, level: 0 }
+
+function teamCost (team, targets, mu, invMuSq) {
+  return weightedCost(costTerms(team, targets, mu, invMuSq, TEAM_TERMS))
+}
+
+/** 各队分项之和，外加加权总分。用于择优比较和 `costBreakdown` 展示。 */
 function totalCost (teams, targets, mu, invMuSq) {
-  let size = 0
-  let gender = 0
-  let star = 0
-  let level = 0
+  const sum = { size: 0, gender: 0, star: 0, level: 0 }
   for (let i = 0; i < teams.length; i++) {
-    const t = teams[i]
-    const dn = t.size - targets.size
-    size += dn * dn
-    for (let c = 0; c < CLASSES.length; c++) {
-      const cls = CLASSES[c]
-      const d = t.count[cls] - targets.count[cls]
-      gender += d * d
-    }
-    const ds = t.star - targets.star
-    star += ds * ds
-    const dl = t.levelSum - t.size * mu
-    level += dl * dl * invMuSq
+    const t = costTerms(teams[i], targets, mu, invMuSq)
+    sum.size += t.size
+    sum.gender += t.gender
+    sum.star += t.star
+    sum.level += t.level
   }
-  return {
-    size: size,
-    gender: gender,
-    star: star,
-    level: level,
-    total: W_SIZE * size + W_GENDER * gender + W_STAR * star + W_LEVEL * level,
-  }
+  sum.total = weightedCost(sum)
+  return sum
 }
 
 function canPlace (pod, team, apartAdj) {
@@ -220,7 +225,7 @@ function canPlace (pod, team, apartAdj) {
 
 /**
  * apart 图的最大团 > K ⇒ 必定无解。这是个便宜的必要条件检查，让"真无解"能立刻
- * 报错，而不是等 300 次重启全失败。分支限界，超预算就放弃检查（不影响正确性）。
+ * 报错，而不是等全部重启都失败。分支限界，超预算就放弃检查（不影响正确性）。
  */
 function maxCliqueSize (nodes, apartAdj, budget) {
   let best = 0
@@ -771,4 +776,14 @@ function finish (teams, pods, norm, teamCount, targets, mu, invMuSq, seed, warni
   }
 }
 
-module.exports = { divide, ERR, WARN, normalizeGender, normalizeLevel, STAR_LEVEL }
+module.exports = {
+  divide,
+  ERR,
+  WARN,
+  normalizeGender,
+  normalizeLevel,
+  STAR_LEVEL,
+  // 导出权重和加权函数，好让测试校验"分项明细"和"总分"是同一套公式算出来的
+  WEIGHTS,
+  weightedCost,
+}
