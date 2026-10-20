@@ -11,7 +11,7 @@
         随机抽一个立即生效并计入积分榜。抽中的事件会留在池子里，可以继续抽。
       </view>
       <button class="btn draw-btn gap" bindtap="draw" disabled="{{pool.length === 0}}">
-        抽取一个随机事件
+        抽取事件
       </button>
       <view wx:if="{{pool.length === 0}}" class="field-hint">还没有事件，先在下面添加</view>
     </view>

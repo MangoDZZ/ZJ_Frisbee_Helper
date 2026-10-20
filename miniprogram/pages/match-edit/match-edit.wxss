@@ -141,6 +141,19 @@
   font-size: 24rpx;
 }
 
+/* ---------- 自动暂存提示 ---------- */
+.autosave {
+  text-align: center;
+  font-size: 22rpx;
+  color: #8a9099;
+  margin: -12rpx 0 20rpx;
+}
+/* 保存失败要显眼一点，并且能点（retryAutoSave） */
+.autosave-fail {
+  color: #b4322c;
+  font-size: 24rpx;
+}
+
 /* ---------- 最终比分 ---------- */
 .final-score {
   text-align: center;

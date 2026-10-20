@@ -100,7 +100,7 @@
   </view>
 
   <view wx:if="{{editing}}" class="card">
-    <button class="btn btn-danger" bindtap="removeEvent">删除这场活动</button>
+    <button class="btn btn-danger" bindtap="removeEvent">删除活动</button>
   </view>
 
   <view class="footer-spacer"></view>

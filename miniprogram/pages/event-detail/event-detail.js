@@ -21,6 +21,8 @@ Page({
     myGenderText: '',
     canSignup: false,
     blockReason: '',
+    // 按钮上用的短文案（v1.0.2：部分机型上长文案会换行，尽量控制在 4 个汉字内）
+    blockText: '',
   },
 
   onLoad: function (q) {
@@ -62,6 +64,10 @@ Page({
           canSignup: e.status === 'open' && !expired && (!full || !!d.mySignup),
           blockReason: e.status !== 'open' ? fmt.statusText(e.status)
             : expired ? '报名已截止'
+              : full ? '名额已满' : '',
+          // 按钮文案要短：'报名已截止' 在窄屏上会折行
+          blockText: e.status !== 'open' ? fmt.statusText(e.status)
+            : expired ? '已截止'
               : full ? '名额已满' : '',
         })
         return that.loadTournaments()

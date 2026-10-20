@@ -75,8 +75,12 @@ async function loadMatchesOfEvent (eventId) {
  *  - 有 points 明细时，比分由明细条数**算出来**，客户端传来的 scoreA/scoreB 一概不采信
  *  - 没有明细时，沿用客户端手填的 scoreA/scoreB（v1.0.1 之前的老前端走这条路）
  * 这样新旧前端都能提交，明细也不会和比分对不上。
+ *
+ * @param {boolean} [allowDraw] 是否允许平局。**比赛中（live）必须允许**：
+ *   记分过程中比分本来就会反复持平，不允许的话自动暂存会一直失败，闪退就丢数据。
+ *   比赛结束（finished）仍然不允许平局。
  */
-function validateMatch (d, division) {
+function validateMatch (d, division, allowDraw) {
   const teams = division.teams || []
 
   const a = asInt(d.teamAIndex)
@@ -167,7 +171,8 @@ function validateMatch (d, division) {
     }
   }
 
-  if (scoreA === scoreB) {
+  // 比赛中允许平局：这一分记完正好打成平手是常态，不能让暂存失败。
+  if (scoreA === scoreB && !allowDraw) {
     return {
       error: err('DRAW_NOT_ALLOWED',
         rawPoints.length > 0
@@ -199,7 +204,12 @@ function validateMatch (d, division) {
   // 而弃赛的人按上面这条规则不可能在上场名单里，两个不变量合起来已经把这种情况排除了。
 
   // MVP 由胜方从败方的上场队员里选，所以只能落在败方且必须上过场。
-  const loserParticipants = scoreA > scoreB ? pb.value : pa.value
+  // 比分持平时（只可能是比赛中）没有"败方"，此时不做这一项判定，只要求是上场队员：
+  // 否则记分员在阶段三重选过 MVP、又回阶段二记了一分打成平手，自动暂存就会整个失败。
+  const decided = scoreA !== scoreB
+  const loserParticipants = decided
+    ? (scoreA > scoreB ? pb.value : pa.value)
+    : pa.value.concat(pb.value)
   const rawMvp = Array.isArray(d.mvpIds) ? d.mvpIds : []
   const mvpIds = []
   for (let i = 0; i < rawMvp.length; i++) {
@@ -209,7 +219,10 @@ function validateMatch (d, division) {
       return { error: err('INVALID_INPUT', '同一个人不能被选为两次 MVP', { id: id }) }
     }
     if (loserParticipants.indexOf(id) < 0) {
-      return { error: err('INVALID_MVP', 'MVP 只能从败方的上场队员里选', { id: id }) }
+      return {
+        error: err('INVALID_MVP',
+          decided ? 'MVP 只能从败方的上场队员里选' : 'MVP 只能是本场上了场的队员', { id: id }),
+      }
     }
     mvpIds.push(id)
   }
@@ -377,11 +390,13 @@ const actions = {
     if (dv.error) return dv.error
     const division = dv.value
 
-    const v = validateMatch(d, division)
+    // 比赛状态：赛中就存成 live，结束时存 finished。老前端不传，按 finished 处理。
+    // 状态要先算出来，因为"能不能是平局"取决于它：比赛中允许平局，结束不允许。
+    const status = matchStatus(d.status)
+
+    const v = validateMatch(d, division, status === 'live')
     if (v.error) return v.error
 
-    // 比赛状态：赛中就存成 live，结束时存 finished。老前端不传，按 finished 处理。
-    const status = matchStatus(d.status)
     const patch = Object.assign({}, v.value, { status: status })
 
     const matchId = trimStr(d.matchId)

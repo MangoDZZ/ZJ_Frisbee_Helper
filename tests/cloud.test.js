@@ -1226,10 +1226,13 @@ add('管理员指定组织者，名单来自报过名的人', async function () 
   const ev = await setupEvent(3)
 
   const users = await expectOk(as(ADMIN, hatAdmin, 'listUsers', {}))
-  eq(users.list.length, 3, '三个报过名的人')
-  ok(users.list.every(function (u) { return !u.isOrganizer }), '默认都不是组织者')
+  // 三个报过名的人 + 建活动的 OWNER + 当前管理员（后两者没有报名记录，靠角色列出来）
+  eq(users.list.length, 5, '报过名的三个人 + 两个只有角色的人')
+  const signed = users.list.filter(function (u) { return !u.noSignup })
+  eq(signed.length, 3, '有报名记录的正好三个')
+  ok(signed.every(function (u) { return !u.isOrganizer }), '默认都不是组织者')
 
-  const target = users.list[0]
+  const target = signed[0]
   await expectOk(as(ADMIN, hatAdmin, 'setOrganizer', {
     openid: target.openid, name: target.name, isOrganizer: true,
   }))
@@ -1307,6 +1310,164 @@ add('管理台：组织者和管理员能打开不是自己创建的活动', asy
     false, '一般用户没有管理权')
   await expectErr(as('player-1', hatSignup, 'listAll', { eventId: ctx.eventId }),
     'FORBIDDEN', '一般用户读不到名单')
+})
+
+add('比赛中允许平局：逐分暂存在持平状态下也能存住', async function () {
+  const ctx = await setupTournament([2, 2])
+  const A = ctx.teams[0].memberIds
+  const B = ctx.teams[1].memberIds
+
+  // 1:1 —— 这正是原来手动暂存失败、自动保存一存就报错的场景
+  const live = await expectOk(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+    points: [
+      { team: 'A', scorer: A[0], assist: null },
+      { team: 'B', scorer: B[0], assist: null },
+    ],
+    status: 'live',
+  })), '比赛中要允许平局')
+
+  const doc = mock.get('matches', live._id)
+  eq(doc.scoreA, 1)
+  eq(doc.scoreB, 1)
+  eq(doc.status, 'live')
+
+  // 平局不计胜负分，所以积分榜上还没人拿到分
+  const board = await expectOk(as(OWNER, hatMatch, 'leaderboard', { eventId: ctx.eventId }))
+  eq(board.totals.matchCount, 0, '平局不计分')
+  eq(board.liveMatchCount, 1)
+
+  // 比赛结束仍然不允许平局
+  await expectErr(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+    matchId: live._id,
+    points: [
+      { team: 'A', scorer: A[0], assist: null },
+      { team: 'B', scorer: B[0], assist: null },
+    ],
+    status: 'finished',
+  })), 'DRAW_NOT_ALLOWED', '结束的比赛不能是平局')
+
+  // 补一分就能结束
+  const done = await expectOk(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+    matchId: live._id,
+    points: [
+      { team: 'A', scorer: A[0], assist: null },
+      { team: 'B', scorer: B[0], assist: null },
+      { team: 'A', scorer: A[1], assist: null },
+    ],
+    status: 'finished',
+  })))
+  eq(done.status, 'finished')
+  eq(mock.get('matches', live._id).scoreA, 2)
+})
+
+add('比赛中平局时也允许带 MVP（只能选本场上过场的人）', async function () {
+  const ctx = await setupTournament([2, 2])
+  const A = ctx.teams[0].memberIds
+  const B = ctx.teams[1].memberIds
+
+  // 平局时没有"败方"，不应该因为 MVP 落在哪一方而整场保存失败
+  const live = await expectOk(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+    points: [
+      { team: 'A', scorer: A[0], assist: null },
+      { team: 'B', scorer: B[0], assist: null },
+    ],
+    mvpIds: [A[1]],
+    status: 'live',
+  })), '平局时可以暂存 MVP')
+  eq(mock.get('matches', live._id).mvpIds.length, 1)
+
+  // 但不能是本场没上过场的人
+  const bench = ctx.ids.filter(function (id) {
+    return ctx.teams[0].memberIds.indexOf(id) < 0 &&
+      ctx.teams[1].memberIds.indexOf(id) < 0
+  })[0]
+  if (bench) {
+    await expectErr(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+      matchId: live._id,
+      points: [
+        { team: 'A', scorer: A[0], assist: null },
+        { team: 'B', scorer: B[0], assist: null },
+      ],
+      mvpIds: [bench],
+      status: 'live',
+    })), 'INVALID_MVP')
+  }
+})
+
+add('自动暂存：反复保存同一场只更新一条记录，不会多出比赛', async function () {
+  const ctx = await setupTournament([2, 2])
+  const A = ctx.teams[0].memberIds
+  const B = ctx.teams[1].memberIds
+
+  let id = null
+  const seq = [
+    [{ team: 'A', scorer: A[0], assist: null }],
+    [{ team: 'A', scorer: A[0], assist: null }, { team: 'B', scorer: B[0], assist: null }],
+    [{ team: 'A', scorer: A[0], assist: null }, { team: 'B', scorer: B[0], assist: null },
+      { team: 'A', scorer: A[1], assist: A[0] }],
+  ]
+  for (let i = 0; i < seq.length; i++) {
+    const r = await expectOk(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+      matchId: id, points: seq[i], status: 'live',
+    })))
+    id = r._id
+    eq(mock.all('matches').length, 1, '第 ' + (i + 1) + ' 次暂存后仍然只有一条记录')
+  }
+  const doc = mock.get('matches', id)
+  eq(doc.points.length, 3, '存下的是最后一次的完整明细')
+  eq(doc.scoreA, 2)
+  eq(doc.scoreB, 1)
+  eq(doc.status, 'live')
+})
+
+add('后台用户列表：报名记录被删光后，组织者仍要出现在列表里', async function () {
+  const ev = await setupEvent(2)
+  const target = (await expectOk(as(ADMIN, hatAdmin, 'listUsers', {}))).list[0]
+
+  await expectOk(as(ADMIN, hatAdmin, 'setOrganizer', {
+    openid: target.openid, name: target.name, isOrganizer: true,
+  }))
+
+  // 把他所有报名记录都删掉（这正是 v1.0.2 报告的场景）
+  const all = mock.all('signups').filter(function (s) { return s.openid === target.openid })
+  ok(all.length > 0)
+  for (let i = 0; i < all.length; i++) {
+    await expectOk(as(ADMIN, hatSignup, 'removeSignup', {
+      eventId: ev.eventId, signupId: all[i]._id,
+    }))
+  }
+  eq(mock.all('signups').filter(function (s) { return s.openid === target.openid }).length, 0)
+
+  // 权限确实还在
+  const me = await expectOk(as(target.openid, hatAdmin, 'whoami', {}))
+  eq(me.isOrganizer, true, '角色不会因为删报名而消失')
+
+  // 但必须还能在列表里看到他、并且能撤销
+  const after = await expectOk(as(ADMIN, hatAdmin, 'listUsers', {}))
+  const row = after.list.filter(function (u) { return u.openid === target.openid })[0]
+  ok(row, '只有角色的用户必须仍然列在后台名单里')
+  eq(row.isOrganizer, true)
+  eq(row.noSignup, true, '要标明他没有报名记录')
+  eq(row.signupCount, 0)
+  eq(row.name, target.name, '姓名取角色记录里存的')
+
+  // 撤销之后他从"有角色"变成普通条目（仍然可以列出，因为角色没了就不再是无报名用户）
+  await expectOk(as(ADMIN, hatAdmin, 'setOrganizer', {
+    openid: target.openid, isOrganizer: false,
+  }))
+  const finalList = await expectOk(as(ADMIN, hatAdmin, 'listUsers', {}))
+  const gone = finalList.list.filter(function (u) { return u.openid === target.openid })[0]
+  ok(!gone || (!gone.isOrganizer && !gone.noSignup),
+    '撤销后不该再以"无报名的组织者"出现')
+})
+
+add('后台用户列表：没有报名记录的管理员也要列出来', async function () {
+  // 管理员在 mock 里没有报名记录（初始管理员名单是写死在云函数里的）
+  const users = await expectOk(as(ADMIN, hatAdmin, 'listUsers', {}))
+  const me = users.list.filter(function (u) { return u.openid === ADMIN })[0]
+  ok(me, '管理员自己要出现在名单里，否则他不知道自己在名单中的什么位置')
+  eq(me.isAdmin, true)
+  eq(me.noSignup, true)
 })
 
 add('移交管理员：权限真的转走，不是再复制一份', async function () {
@@ -2259,8 +2420,13 @@ add('后台用户列表不显示测试账号', async function () {
   await expectOk(as(ADMIN, hatSignup, 'seedTestSignups', { eventId: id, count: 10 }))
 
   const users = await expectOk(as(ADMIN, hatAdmin, 'listUsers', {}))
-  eq(users.list.length, 1, '只有真人')
-  eq(users.list[0].openid, ALICE)
+  // 真人 + 建活动的 OWNER + 当前管理员；测试账号一个都不该出现
+  eq(users.list.length, 3, '真人和两个只有角色的人')
+  ok(users.list.some(function (u) { return u.openid === ALICE }), '真人要在列表里')
+  eq(users.list.filter(function (u) { return u.noSignup }).length, 2, '没有报名记录的只有 OWNER 和管理员')
+  ok(users.list.every(function (u) {
+    return !u.isTest && u.openid.indexOf('test-') !== 0
+  }), '测试数据不能出现在名单里')
 })
 
 add('端到端：用测试数据完成一次分队', async function () {

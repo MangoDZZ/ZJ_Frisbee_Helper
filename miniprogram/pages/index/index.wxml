@@ -31,7 +31,7 @@
            卡片本身有 bindtap="openEvent"，所以必须用 catchtap 挡掉冒泡。 -->
       <view wx:if="{{item.canManage}}" class="gap">
         <button class="btn btn-plain btn-sm" data-id="{{item._id}}"
-                catchtap="goManage">进入管理台</button>
+                catchtap="goManage">管理台</button>
       </view>
     </view>
   </block>

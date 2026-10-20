@@ -18,6 +18,9 @@
       <text class="sb-score">{{scoreText}}</text>
       <text class="sb-team">{{teamBName}}</text>
     </view>
+    <!-- 自动暂存提示：失败时可点重试；正常时只是一行淡淡的状态 -->
+    <view wx:if="{{autoSaveText}}" class="autosave {{autoSaveFailed ? 'autosave-fail' : ''}}"
+          bindtap="retryAutoSave">{{autoSaveText}}</view>
 
     <!-- ==================== 阶段一：赛前检录 ==================== -->
     <block wx:if="{{stage === STAGE_LINEUP}}">
@@ -84,7 +87,7 @@
           这是升级前录入的比赛（{{scoreText}}），没有逐分明细，所以进不了得分助攻榜。
           改 MVP / 弃赛请直接去「比赛结束」，比分不受影响。
         </view>
-        <button class="btn btn-plain gap" bindtap="startDetail">改为逐分记录</button>
+        <button class="btn btn-plain gap" bindtap="startDetail">改用逐分</button>
       </view>
 
       <block wx:else>
@@ -224,6 +227,6 @@
 
   <block wx:else>
     <button class="btn btn-ghost btn-sm" bindtap="backToLineup">返回检录</button>
-    <button class="btn" bindtap="finishAndSave" disabled="{{submitting}}">结束并保存</button>
+    <button class="btn" bindtap="finishAndSave" disabled="{{submitting}}">结束保存</button>
   </block>
 </view>

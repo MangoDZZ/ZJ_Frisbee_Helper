@@ -57,5 +57,5 @@
 <view wx:if="{{!loading && !failMessage}}" class="footer-bar">
   <button class="btn btn-plain" bindtap="goLeaderboard">积分榜</button>
   <button class="btn btn-ghost" bindtap="goStats">查看数据</button>
-  <button wx:if="{{isOwner}}" class="btn" bindtap="addMatch">记录一场比赛</button>
+  <button wx:if="{{isOwner}}" class="btn" bindtap="addMatch">记录比赛</button>
 </view>

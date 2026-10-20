@@ -6,7 +6,7 @@
  *   node tests/divide.test.js
  */
 
-const { divide, ERR, WARN } = require('../miniprogram/utils/divide.js')
+const { divide, ERR, WARN, STAR_LEVEL } = require('../miniprogram/utils/divide.js')
 
 // ---------------------------------------------------------------- 测试框架
 
@@ -128,7 +128,7 @@ function checkInvariants (res, players, label) {
       else if (p.gender === 'F') f++
       else u++
       ls += p.level
-      if (p.level >= 4) star++
+      if (p.level >= STAR_LEVEL) star++
     }
     eq(t.stats.count, c, tag + t.name + ' count')
     eq(t.stats.male, m, tag + t.name + ' male')

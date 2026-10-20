@@ -49,6 +49,6 @@
 
 <view wx:if="{{!loading && !failMessage}}" class="footer-bar">
   <button class="btn" bindtap="submit" disabled="{{submitting}}">
-    {{editing ? '保存修改' : '创建并分队'}}
+    {{editing ? '保存修改' : '创建分队'}}
   </button>
 </view>

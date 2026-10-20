@@ -55,7 +55,7 @@
     <view class="card">
       <view class="btn-bar gap">
         <button class="btn btn-ghost btn-sm" bindtap="goTournaments">
-          {{tournaments.length > 0 ? '赛事与分队' : '还没有赛事'}}
+          {{tournaments.length > 0 ? '赛事' : '暂无赛事'}}
         </button>
         <button class="btn btn-plain btn-sm" bindtap="goLeaderboard">积分榜</button>
         <button class="btn btn-plain btn-sm" bindtap="goStats">查看数据</button>
@@ -71,6 +71,6 @@
 <view wx:if="{{event}}" class="footer-bar">
   <button wx:if="{{canManage}}" class="btn btn-plain" bindtap="goManage">管理台</button>
   <button wx:if="{{!mySignup && canSignup}}" class="btn" bindtap="goSignup">我要报名</button>
-  <button wx:elif="{{!mySignup && !canSignup}}" class="btn" disabled>{{blockReason || '暂不可报名'}}</button>
+  <button wx:elif="{{!mySignup && !canSignup}}" class="btn" disabled>{{blockText || '不可报名'}}</button>
   <button wx:elif="{{mySignup && !canManage}}" class="btn" disabled>已报名</button>
 </view>

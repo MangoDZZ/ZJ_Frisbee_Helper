@@ -15,18 +15,20 @@
 
 const { createPrng, mixSeed, shuffleInPlace, randomSeed } = require('./prng.js')
 
-const DEFAULT_RESTARTS = 300
+const DEFAULT_RESTARTS = 1000
 const DEFAULT_LEVEL = 3
 const MIN_LEVEL = 1
 const MAX_LEVEL = 5
-const STAR_LEVEL = 4
+const STAR_LEVEL = 5
 
 // 权重是优先级语义，不是待调的参数：人数/性别在真实名单里通常可精确达成，
-// 水平只能近似，所以 100:1 表示"宁可水平差一点，也不用性别失衡去换水平收益"。
-const W_SIZE = 100
+// 水平只能近似，所以 50:100 表示"宁可水平差一点，也不用性别失衡去换水平收益"。
+// 换算：1 人的人数偏差 = 50；1 个性别偏差 = 100；1 个明星偏差 = 100；
+// 水平项是 (总水平 - 人数×μ)² / μ²，即"偏离量折成几人份"，μ=3 时偏离 1 档 = 5.6。
+const W_SIZE = 50
 const W_GENDER = 100
 const W_STAR = 100
-const W_LEVEL = 1
+const W_LEVEL = 50
 
 const CLASSES = ['F', 'M', 'U']
 
@@ -769,4 +771,4 @@ function finish (teams, pods, norm, teamCount, targets, mu, invMuSq, seed, warni
   }
 }
 
-module.exports = { divide, ERR, WARN, normalizeGender, normalizeLevel }
+module.exports = { divide, ERR, WARN, normalizeGender, normalizeLevel, STAR_LEVEL }

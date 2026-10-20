@@ -20,6 +20,8 @@
             <text class="strong">{{item.name}}</text>
             <text class="muted small">　{{item.genderText}}</text>
             <text wx:if="{{item.roleText}}" class="tag {{item.roleClass}}">{{item.roleText}}</text>
+            <!-- 报名记录被删掉的人：角色还在，必须能看见、能撤销 -->
+            <text wx:if="{{item.noSignup}}" class="tag tag-full">无报名</text>
           </view>
           <view class="muted small">{{item.metaText}}</view>
         </view>

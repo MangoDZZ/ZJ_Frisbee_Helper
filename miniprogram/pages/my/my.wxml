@@ -69,7 +69,7 @@
     <view wx:else class="card">
       <view class="muted small">还没有创建活动</view>
       <button wx:if="{{canCreateEvent}}" class="btn btn-plain btn-sm gap"
-              bindtap="createEvent">创建一场 HAT 赛</button>
+              bindtap="createEvent">创建活动</button>
       <view wx:else class="muted small gap">只有组织者可以发起活动，需要的话请联系管理员</view>
     </view>
 

@@ -47,7 +47,7 @@
       </view>
       <view wx:if="{{testCount > 0}}" class="btn-bar gap">
         <button class="btn btn-danger btn-sm" bindtap="clearTest">
-          清理 {{testCount}} 个测试报名
+          清理 {{testCount}} 人
         </button>
       </view>
     </view>
@@ -63,7 +63,7 @@
         支持 Excel（.xlsx/.xls）。表头需要包含“姓名、性别、能力”，能力填写 L1-L5；导入后会占用名额。
       </view>
       <button class="btn btn-plain btn-sm" loading="{{importing}}" disabled="{{importing}}" bindtap="importRoster">
-        {{importing ? '导入中…' : '选择 Excel 文件'}}
+        {{importing ? '导入中…' : '导入名单'}}
       </button>
     </view>
 
@@ -142,5 +142,5 @@
 <view wx:if="{{event && !failMessage && !loading}}" class="footer-bar">
   <button class="btn btn-plain" bindtap="viewLeaderboard">积分榜</button>
   <button class="btn btn-ghost" bindtap="goRandomEvents">随机事件</button>
-  <button class="btn" bindtap="goTournaments">赛事与分队</button>
+  <button class="btn" bindtap="goTournaments">赛事</button>
 </view>

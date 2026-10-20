@@ -65,7 +65,7 @@
     {{teams.length > 0 ? '重新分队' : '开始分队'}}
   </button>
   <button wx:if="{{teams.length > 0 && !division.published}}" class="btn"
-          bindtap="publish" disabled="{{busy}}">发布给大家</button>
+          bindtap="publish" disabled="{{busy}}">发布</button>
   <button wx:elif="{{teams.length > 0 && division.published}}" class="btn btn-ghost"
           bindtap="unpublish" disabled="{{busy}}">撤销发布</button>
 </view>

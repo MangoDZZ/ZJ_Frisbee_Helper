@@ -68,6 +68,10 @@ Page({
     mvpIds: [],
     forfeitIds: [],
     forfeitCandidates: [],
+
+    // 自动暂存的状态提示（v1.0.2）：空串表示还没存过，等第一次记分后才出现
+    autoSaveText: '',
+    autoSaveFailed: false,
   },
 
   onLoad: function (q) {
@@ -99,10 +103,23 @@ Page({
       })
   },
 
+  /**
+   * 切后台时补一次保存。
+   *
+   * 系统回收小程序不会给 onUnload，onHide 是最后一个能跑的时机——虽然请求可能在页面
+   * 销毁后才回来，但发出去就有机会成功；真正的兜底是"记一分存一次"。
+   */
+  onHide: function () {
+    if (this.data.manualScore) return
+    if (!this.data.points.length) return
+    this.autoSave()
+  },
+
   onUnload: function () {
-    // 边打边记的分数只存在本页内存里，直接退出会丢，所以提醒一次。
+    // 正常情况下每一分都已经自动存过了。只有保存失败过才会走到这里。
     if (this._saved || this.data.submitting) return
     if (!this.data.points.length) return
+    if (!this.data.autoSaveFailed) return
     wx.showToast({ title: '这次记录还没保存', icon: 'none' })
   },
 
@@ -395,6 +412,7 @@ Page({
       this.refreshScore()
       this.refreshMvp()
       this.refreshPending()
+      this.autoSave()
     }.bind(this))
   },
 
@@ -406,6 +424,7 @@ Page({
     this.setData({ points: points }, function () {
       this.refreshScore()
       this.refreshMvp()
+      this.autoSave()
     }.bind(this))
   },
 
@@ -416,6 +435,7 @@ Page({
     this.setData({ points: points }, function () {
       this.refreshScore()
       this.refreshMvp()
+      this.autoSave()
     }.bind(this))
   },
 
@@ -571,6 +591,9 @@ Page({
    *  - 比赛状态：比赛中存 live（列表上标「进行中」），比赛结束存 finished
    *  - 存完去哪：暂存留在本页继续记，结束才退回上一页
    *
+   * **比赛中的暂存允许平局**：记分过程中随时可能持平，不允许的话每次持平都存不下去，
+   * 闪退就丢数据（这正是 v1.0.2 要修的问题）。只有"结束"才要求分出胜负。
+   *
    * scoreA / scoreB 随明细一起提交：v1.0.1 的云函数会按明细重算、不采信这两个值，
    * 但**部署窗口期内线上还可能是旧云函数**，旧版只认手填比分，带上就两边都能存。
    *
@@ -586,30 +609,17 @@ Page({
     const a = d.scoreA
     const b = d.scoreB
     if (a === 0 && b === 0) return warn('还没有记录任何得分，先记一分再保存')
-    if (a === b) return warn('不允许平局，请把分出胜负的每一分都记上')
+    if (final && a === b) return warn('不允许平局，请把分出胜负的每一分都记上')
 
     this.setData({ submitting: true })
-    api.match('saveMatch', {
-      tournamentId: d.tournamentId,
-      matchId: d.matchId,
-      teamAIndex: d.teamAIndex,
-      teamBIndex: d.teamBIndex,
-      scoreA: a,
-      scoreB: b,
-      points: d.points.map(function (p) {
-        return { team: p.team, scorer: p.scorer, assist: p.assist || null }
-      }),
-      participantsA: idsOf(d.rosterA),
-      participantsB: idsOf(d.rosterB),
-      mvpIds: d.mvpIds,
-      forfeitIds: d.forfeitIds,
-      status: final ? 'finished' : 'live',
-    }, { loading: '保存中' })
+    api.match('saveMatch', this.buildPayload(final ? 'finished' : 'live'),
+      { loading: '保存中' })
       .then(function (res) {
         const id = (res && res._id) || d.matchId
         // 暂存后 id 就固定下来了，再存是更新同一条，不会多出一场
         that.setData({ submitting: false, matchId: id })
         if (!final) {
+          that.setData({ autoSaveText: '已保存', autoSaveFailed: false })
           wx.showToast({ title: '已暂存，可以继续记分', icon: 'success' })
           return
         }
@@ -624,6 +634,87 @@ Page({
 
   saveLive: function () { this.submit(false) },
   finishAndSave: function () { this.submit(true) },
+
+  /** 提交给 saveMatch 的数据。手动保存和自动暂存共用，避免两边字段漂移。 */
+  buildPayload: function (status) {
+    const d = this.data
+    return {
+      tournamentId: d.tournamentId,
+      matchId: d.matchId,
+      teamAIndex: d.teamAIndex,
+      teamBIndex: d.teamBIndex,
+      scoreA: d.scoreA,
+      scoreB: d.scoreB,
+      points: d.points.map(function (p) {
+        return { team: p.team, scorer: p.scorer, assist: p.assist || null }
+      }),
+      participantsA: idsOf(d.rosterA),
+      participantsB: idsOf(d.rosterB),
+      mvpIds: d.mvpIds,
+      forfeitIds: d.forfeitIds,
+      status: status,
+    }
+  },
+
+  // ---------------------------------------------------------------- 自动暂存
+
+  /**
+   * 记一分就自动暂存一次（v1.0.2）。
+   *
+   * 为什么要逐分保存：小程序被系统回收、切后台久了被杀、真闪退，都不会给页面任何回调，
+   * 只存在内存里的比分就没了。所以只能把"记一分"和"存一次"绑在一起。
+   *
+   * 三个刻意的设计：
+   *  - **静默**：不弹 loading、不弹 toast，否则每记一分就打断一次现场操作
+   *  - **单飞 + 脏标记**：同一时刻只有一个请求在飞；飞的过程中又记了分，等它回来再存最新状态，
+   *    所以连点几下不会排队发一串请求，也不会用旧状态覆盖新状态
+   *  - **比分持平时也照存**：记分过程中随时可能打平，这正是原来手动暂存失败的原因
+   */
+  autoSave: function () {
+    const d = this.data
+    // 老比赛只有比分没有明细，没有可自动暂存的东西
+    if (d.manualScore) return Promise.resolve()
+    // 一分都没记过就不创建空比赛
+    if (!d.matchId && d.points.length === 0) return Promise.resolve()
+    if (d.teamAIndex === null || d.teamBIndex === null) return Promise.resolve()
+
+    this._dirty = true
+    if (this._saving) return this._saving
+
+    const that = this
+    this.setData({ autoSaveText: '保存中…', autoSaveFailed: false })
+
+    function saveOnce () {
+      that._dirty = false
+      return api.match('saveMatch', that.buildPayload('live'),
+        { loading: false, toastError: false })
+        .then(function (res) {
+          const id = (res && res._id) || that.data.matchId
+          that.setData({ matchId: id, autoSaveText: '已自动保存', autoSaveFailed: false })
+          that._saved = true
+        })
+        .catch(function () {
+          // 不弹 toast：现场正在记分，弹窗会挡住操作。改成可点的状态提示。
+          // _dirty 保持为 true：这些分确实还没进库；但下面不能立刻重试，
+          // 否则网络断了会变成一个死循环，一直往服务端打请求。
+          that._dirty = true
+          that.setData({ autoSaveText: '未保存，点此重试', autoSaveFailed: true })
+        })
+        .then(function () {
+          that._saving = null
+          // 保存期间又记了分 → 接着存最新状态；上次失败就先不动，等下一次记分或手动重试
+          if (that._dirty && !that.data.autoSaveFailed) return that.autoSave()
+        })
+    }
+
+    this._saving = saveOnce()
+    return this._saving
+  },
+
+  retryAutoSave: function () {
+    if (!this.data.autoSaveFailed) return
+    this.autoSave()
+  },
 
   goLeaderboard: function () {
     wx.navigateTo({ url: '/pages/leaderboard/leaderboard?eventId=' + this.data.eventId })

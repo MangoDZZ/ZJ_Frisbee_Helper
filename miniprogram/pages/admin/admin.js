@@ -29,8 +29,9 @@ Page({
         const list = (d.list || []).map(function (u) {
           return Object.assign({}, u, {
             genderText: fmt.genderText(u.gender),
-            metaText: '报名过 ' + u.signupCount + ' 次 · 最近 ' +
-              fmt.formatDateTime(u.lastSignupTime),
+            metaText: u.noSignup
+              ? '没有报名记录 · 仅持有角色'
+              : '报名过 ' + u.signupCount + ' 次 · 最近 ' + fmt.formatDateTime(u.lastSignupTime),
             roleText: u.isAdmin ? '管理员' : u.isOrganizer ? '组织者' : '',
             roleClass: u.isAdmin ? 'tag-mine' : u.isOrganizer ? 'tag-divided' : '',
           })
@@ -62,11 +63,13 @@ Page({
     }
 
     const that = this
+    // 没有报名记录的人不能接手管理员（移交时会校验目标必须有真实报名记录），
+    // 所以这种情况下不给他这一项，免得点了才报错。
+    const items = [u.isOrganizer ? '取消组织者身份' : '设为组织者']
+    if (!u.noSignup) items.push('移交管理员身份给他')
+
     wx.showActionSheet({
-      itemList: [
-        u.isOrganizer ? '取消组织者身份' : '设为组织者',
-        '移交管理员身份给他',
-      ],
+      itemList: items,
       success: function (r) {
         if (r.tapIndex === 0) that.setOrganizer(u, !u.isOrganizer)
         else if (r.tapIndex === 1) that.transferAdmin(u)

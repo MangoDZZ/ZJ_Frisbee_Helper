@@ -43,12 +43,23 @@ function requireAdmin (r) {
   return null
 }
 
-/** 当前管理员名单（数据库里的，没有就回落到云函数里写死的初始管理员）。 */
-async function currentAdminOpenids () {
+/**
+ * 管理员记录（含姓名）。库里一条都没有时回落到云函数里写死的初始管理员
+ * —— 那批人没有 name 字段，界面上会显示成"未报名过"或取其报名记录的姓名。
+ */
+async function adminRows () {
   const res = await rolesCol.where({ role: roles.ROLE_ADMIN })
     .limit(roles.MAX_ROLE_DOCS).get()
-  const rows = (res.data || []).map(function (x) { return x.openid }).filter(Boolean)
-  return rows.length > 0 ? rows : roles.ADMIN_OPENIDS.slice()
+  const rows = (res.data || [])
+    .map(function (x) { return { openid: x.openid, name: x.name || '' } })
+    .filter(function (x) { return !!x.openid })
+  if (rows.length > 0) return rows
+  return roles.ADMIN_OPENIDS.map(function (id) { return { openid: id, name: '' } })
+}
+
+/** 当前管理员 openid 名单（数据库里的，没有就回落到初始管理员）。 */
+async function currentAdminOpenids () {
+  return (await adminRows()).map(function (x) { return x.openid })
 }
 
 /**
@@ -131,21 +142,60 @@ const actions = {
     }
 
     const orgSet = {}
-    ;(await organizerRows()).forEach(function (x) { orgSet[x.openid] = true })
+    const orgName = {}
+    ;(await organizerRows()).forEach(function (x) {
+      orgSet[x.openid] = true
+      if (x.name) orgName[x.openid] = x.name
+    })
 
     const adminIds = await currentAdminOpenids()
     const adminSet = {}
+    const adminName = {}
     adminIds.forEach(function (id) { adminSet[id] = true })
-
-    const list = order.slice(0, MAX_USERS).map(function (id) {
-      return Object.assign({}, byOpenid[id], {
-        isOrganizer: !!orgSet[id],
-        isAdmin: !!adminSet[id],
-      })
+    ;(await adminRows()).forEach(function (x) {
+      if (x.name) adminName[x.openid] = x.name
     })
 
+    /**
+     * 只有角色、没有任何报名记录的人也要列出来。
+     *
+     * 这是 v1.0.2 修的问题：报名记录是这份名单的**唯一来源**，所以把某个组织者的报名
+     * 删掉之后，他的角色记录还在、权限照常生效，但后台列表里再也看不到他——
+     * 既没法发现，也没法撤销，成了一个看不见的权限。
+     */
+    const roleOnly = []
+    function addRoleOnly (openid, name) {
+      if (!openid || byOpenid[openid]) return
+      if (roleOnly.some(function (x) { return x.openid === openid })) return
+      roleOnly.push({
+        openid: openid,
+        name: name || '(未报名过)',
+        gender: '',
+        lastSignupTime: null,
+        signupCount: 0,
+        noSignup: true,
+      })
+    }
+    Object.keys(orgSet).forEach(function (id) { addRoleOnly(id, orgName[id]) })
+    adminIds.forEach(function (id) { addRoleOnly(id, adminName[id]) })
+
+    function decorate (u) {
+      return Object.assign({}, u, {
+        isOrganizer: !!orgSet[u.openid],
+        isAdmin: !!adminSet[u.openid],
+        noSignup: !!u.noSignup,
+      })
+    }
+
+    const list = order.slice(0, MAX_USERS).map(function (id) {
+      return decorate(byOpenid[id])
+    })
+    // 没有报名记录的角色持有者排在最后：正常名单保持按报名时间排序，
+    // 这类人是异常情况，靠「无报名」标签 + 排在最末引起注意，不去打扰常用列表。
+    const tail = roleOnly.slice(0, Math.max(0, MAX_USERS - list.length)).map(decorate)
+
     return ok({
-      list: list,
+      list: list.concat(tail),
       adminOpenids: adminIds,
       canEditRoles: roles.canManageRoles(r),
       myOpenid: r.openid,
