@@ -18,7 +18,7 @@ Page({
     roster: [],          // [{ _id, name, genderText, levelText, checked }]
     checkedCount: 0,
 
-    // 粘贴名单（v1.0.3）：pasteInfo 为 null 表示还没识别过
+    // 粘贴名单（v1.1.2）：pasteInfo 为 null 表示还没识别过
     pasteText: '',
     pasteOpen: false,    // 浮层是否展开
     pasteInfo: null,     // { total, matchedCount, unmatched: [], ambiguous: [], skipped: 0 }
@@ -124,7 +124,7 @@ Page({
    * 粘贴框放在全屏浮层里而不是页面正文。
    *
    * textarea 是微信的原生组件，层级永远高于同层的普通 view——正文里的固定底栏
-   * 根本盖不住它，名单长一点滚到底栏上方就会把「创建分队」压住（v1.0.3 的 bug）。
+   * 根本盖不住它，名单长一点滚到底栏上方就会把「创建分队」压住（v1.1.2 的 bug）。
    * 浮层是普通 view，能盖住底栏；框固定高度、只占浮层上半部分，两者不重叠。
    */
   openPaste: function () {
@@ -144,7 +144,7 @@ Page({
   },
 
   /**
-   * 按粘贴的文本勾选到场的人（v1.0.3）。
+   * 按粘贴的文本勾选到场的人（v1.1.2）。
    *
    * 语义是**替换**而不是追加：粘一段"今天到场的人"，意思就是"这些人到场了"。
    * 如果只是往上追加，默认全选的名单里一个人也取消不掉，这个功能就没有意义了。

@@ -277,7 +277,7 @@ if (!versionM) {
   while ((hm = hRe.exec(plan)) !== null) headings.push(hm[1])
   const latest = headings.length > 0 ? headings[headings.length - 1] : null
   if (!latest) {
-    bad('plan.md 里找不到形如 "## v1.0.3" 的版本小节')
+    bad('plan.md 里找不到形如 "## v1.2.3" 的版本小节')
   } else if (latest !== versionM[1]) {
     bad('config.js 的 VERSION=' + versionM[1] + ' 与 plan.md 最新版本 ' + latest +
       ' 不一致，发版前记得同步')

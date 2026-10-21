@@ -25,7 +25,7 @@ const FORFEIT_RESET = 2
  */
 const MAX_POINTS_PER_MATCH = 200
 
-/** 得分记录。没有 points 字段的是老比赛（点位明细是 v1.0.1 才加的）。 */
+/** 得分记录。没有 points 字段的是老比赛（点位明细是 v1.1.0 才加的）。 */
 function matchPoints (match) {
   return asArray(match && match.points)
 }

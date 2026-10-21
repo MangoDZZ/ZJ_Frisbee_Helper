@@ -73,7 +73,7 @@ async function loadMatchesOfEvent (eventId) {
  *
  * 比分有两个来源：
  *  - 有 points 明细时，比分由明细条数**算出来**，客户端传来的 scoreA/scoreB 一概不采信
- *  - 没有明细时，沿用客户端手填的 scoreA/scoreB（v1.0.1 之前的老前端走这条路）
+ *  - 没有明细时，沿用客户端手填的 scoreA/scoreB（v1.1.0 之前的老前端走这条路）
  * 这样新旧前端都能提交，明细也不会和比分对不上。
  *
  * @param {boolean} [allowDraw] 是否允许平局。**比赛中（live）必须允许**：

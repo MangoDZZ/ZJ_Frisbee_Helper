@@ -1428,7 +1428,7 @@ add('后台用户列表：报名记录被删光后，组织者仍要出现在列
     openid: target.openid, name: target.name, isOrganizer: true,
   }))
 
-  // 把他所有报名记录都删掉（这正是 v1.0.2 报告的场景）
+  // 把他所有报名记录都删掉（这正是 v1.1.1 报告的场景）
   const all = mock.all('signups').filter(function (s) { return s.openid === target.openid })
   ok(all.length > 0)
   for (let i = 0; i < all.length; i++) {
@@ -1932,7 +1932,7 @@ add('删除比赛后积分同步扣掉', async function () {
   eq(board.totals.matchCount, 0)
 })
 
-// ================================================================ 逐分记录（v1.0.1）
+// ================================================================ 逐分记录（v1.1.0）
 
 /** 造一串逐分记录：scoring 是 [['A', 队员下标, 助攻下标|null], ...] */
 function pointList (ctx, scoring) {
@@ -2113,7 +2113,7 @@ add('比赛状态：比赛中存 live，结束后存 finished；老前端不传�
 
 add('老比赛没有明细：照样计入积分，但不进得分助攻榜', async function () {
   const ctx = await setupTournament([2, 2])
-  // 不带 points 的提交就是 v1.0.1 之前的老前端行为
+  // 不带 points 的提交就是 v1.1.0 之前的老前端行为
   await expectOk(as(OWNER, hatMatch, 'saveMatch', matchData(ctx)))
 
   const board = await expectOk(as(OWNER, hatMatch, 'leaderboard', { eventId: ctx.eventId }))

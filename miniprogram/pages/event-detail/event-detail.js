@@ -21,7 +21,7 @@ Page({
     myGenderText: '',
     canSignup: false,
     blockReason: '',
-    // 按钮上用的短文案（v1.0.2：部分机型上长文案会换行，尽量控制在 4 个汉字内）
+    // 按钮上用的短文案（v1.1.1：部分机型上长文案会换行，尽量控制在 4 个汉字内）
     blockText: '',
   },
 
