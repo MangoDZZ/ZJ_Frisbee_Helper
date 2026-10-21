@@ -16,6 +16,7 @@ const SUITES = [
   ['分队算法', 'divide.test.js'],
   ['积分推导', 'score.test.js'],
   ['名单导入解析', 'import-list.test.js'],
+  ['粘贴名单匹配', 'name-match.test.js'],
   ['时间与展示', 'format.test.js'],
   ['云函数逻辑', 'cloud.test.js'],
   ['页面一致性', 'check-pages.js'],

@@ -149,6 +149,11 @@ function undoLastPod (team, pod) {
   }
 }
 
+/** 姓名排序。中文按拼音序（ICU 可用时），退化时按码位序——两种情况都不泄露水平。 */
+function compareName (a, b) {
+  return String(a.name || '').localeCompare(String(b.name || ''), 'zh-Hans-CN')
+}
+
 /**
  * 单队代价。总代价是各队之和，所以可以按队增量计算，落位时判断 O(1)。
  *
@@ -698,12 +703,10 @@ function finish (teams, pods, norm, teamCount, targets, mu, invMuSq, seed, warni
       members[j] = { id: p.id, name: p.name, gender: p.gender, level: p.level }
       memberIds[j] = p.id
     }
-    // 展示顺序按水平降序，组织者看名单时更直观。
+    // 展示顺序按姓名排，**不能按水平排**：分队结果是发布给所有人看的，
+    // 按水平从高到低排等于把组织者对每个人的评级直接念出来。
     const order = members.map(function (m, k) { return k })
-    order.sort(function (a, b) {
-      if (members[b].level !== members[a].level) return members[b].level - members[a].level
-      return members[a].name < members[b].name ? -1 : members[a].name > members[b].name ? 1 : 0
-    })
+    order.sort(function (a, b) { return compareName(members[a], members[b]) })
     const sortedMembers = order.map(function (k) { return members[k] })
     const sortedIds = order.map(function (k) { return memberIds[k] })
 

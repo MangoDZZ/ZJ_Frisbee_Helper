@@ -1,6 +1,7 @@
 'use strict'
 
 const api = require('../../utils/api.js')
+const nameMatch = require('../../utils/name-match.js')
 
 Page({
   data: {
@@ -16,6 +17,10 @@ Page({
     teamCount: '4',
     roster: [],          // [{ _id, name, genderText, levelText, checked }]
     checkedCount: 0,
+
+    // 粘贴名单（v1.0.3）：pasteInfo 为 null 表示还没识别过
+    pasteText: '',
+    pasteInfo: null,     // { matchedCount, unmatched: [], ambiguous: [], skipped: 0 }
   },
 
   onLoad: function (q) {
@@ -69,6 +74,9 @@ Page({
           failMessage: '',
           roster: roster,
           checkedCount: roster.filter(function (m) { return m.checked }).length,
+          // 名单换了，上一次粘贴的识别结果就作废（id 可能已经变了）
+          pasteText: '',
+          pasteInfo: null,
         }, extra || {}))
       })
       .catch(function (e) {
@@ -105,6 +113,61 @@ Page({
     this.setData({
       roster: list,
       checkedCount: list.filter(function (m) { return m.checked }).length,
+    })
+  },
+
+  // ---------------------------------------------------------------- 粘贴名单
+
+  onPasteInput: function (e) {
+    this.setData({ pasteText: e.detail.value })
+  },
+
+  clearPaste: function () {
+    this.setData({ pasteText: '', pasteInfo: null })
+  },
+
+  /**
+   * 按粘贴的文本勾选到场的人（v1.0.3）。
+   *
+   * 语义是**替换**而不是追加：粘一段"今天到场的人"，意思就是"这些人到场了"。
+   * 如果只是往上追加，默认全选的名单里一个人也取消不掉，这个功能就没有意义了。
+   * 认不出来的条目会原样列在下面，让组织者自己补勾。
+   */
+  applyPaste: function () {
+    const d = this.data
+    if (d.lockedReason) return warn('已有比赛记录，不能改名单')
+
+    const parsed = nameMatch.parseNames(d.pasteText)
+    if (parsed.tokens.length === 0) return warn('先粘贴一段名单')
+
+    const res = nameMatch.matchNames(parsed.tokens, d.roster.map(function (m) {
+      return { id: m._id, name: m.name }
+    }))
+    const info = {
+      total: parsed.tokens.length,
+      matchedCount: res.matched.length,
+      unmatched: res.unmatched,
+      ambiguous: res.ambiguous,
+      skipped: parsed.skipped,
+    }
+
+    // 一个都没认出来时不要动当前勾选，否则等于把名单清空了
+    if (res.matched.length === 0) {
+      this.setData({ pasteInfo: info })
+      return warn('没能识别出任何报名者')
+    }
+
+    const picked = {}
+    res.matched.forEach(function (m) { picked[m.id] = true })
+    const list = d.roster.map(function (m) {
+      return Object.assign({}, m, { checked: !!picked[m._id] })
+    })
+    this.setData({ roster: list, checkedCount: res.matched.length, pasteInfo: info })
+
+    const miss = res.unmatched.length + res.ambiguous.length
+    wx.showToast({
+      title: '识别 ' + res.matched.length + ' 人' + (miss > 0 ? '，' + miss + ' 条待确认' : ''),
+      icon: 'none',
     })
   },
 

@@ -246,6 +246,44 @@ if (fs.existsSync(rolesSrcPath)) {
   }
 }
 
+// ---------------------------------------------------------------- 5. 常量一致
+
+console.log('检查跨端常量与版本号')
+// STAR_LEVEL 决定"高分球员"的界线：客户端拿它分队，云函数拿它重算队伍统计。
+// 两边不一致时不会报错，只会出现"分队时按 5 分算、展示时说 4 分算高分"的怪数字。
+const clientDivide = fs.readFileSync(path.join(mp, 'utils', 'divide.js'), 'utf8')
+const clientStar = clientDivide.match(/const STAR_LEVEL = (\d+)/)
+if (!clientStar) bad('miniprogram/utils/divide.js 里找不到 STAR_LEVEL')
+FN_KEYS.forEach(function (k) {
+  const src = fs.readFileSync(path.join(root, 'cloudfunctions', FN[k], 'index.js'), 'utf8')
+  const m = src.match(/const STAR_LEVEL = (\d+)/)
+  if (!m) return                        // 这个云函数用不到，跳过
+  if (clientStar && m[1] !== clientStar[1]) {
+    bad('cloudfunctions/' + FN[k] + ' 的 STAR_LEVEL=' + m[1] +
+      ' 与 miniprogram/utils/divide.js 的 ' + clientStar[1] + ' 不一致')
+  }
+})
+
+// 版本号：后台管理页显示它，plan.md 的最后一节是当前版本，两边必须同步
+const configSrc = fs.readFileSync(path.join(mp, 'config.js'), 'utf8')
+const versionM = configSrc.match(/const VERSION = '([^']+)'/)
+if (!versionM) {
+  bad('miniprogram/config.js 里没有 VERSION')
+} else {
+  const plan = fs.readFileSync(path.join(root, 'plan.md'), 'utf8')
+  const headings = []
+  const hRe = /^## (v\d+\.\d+\.\d+)\s*$/gm
+  let hm
+  while ((hm = hRe.exec(plan)) !== null) headings.push(hm[1])
+  const latest = headings.length > 0 ? headings[headings.length - 1] : null
+  if (!latest) {
+    bad('plan.md 里找不到形如 "## v1.0.3" 的版本小节')
+  } else if (latest !== versionM[1]) {
+    bad('config.js 的 VERSION=' + versionM[1] + ' 与 plan.md 最新版本 ' + latest +
+      ' 不一致，发版前记得同步')
+  }
+}
+
 // ---------------------------------------------------------------- 汇总
 
 console.log('')

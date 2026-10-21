@@ -32,11 +32,22 @@ const trimStr = common.trimStr
 const asInt = common.asInt
 const removeWhere = common.removeWhere
 
-const STAR_LEVEL = 4
+// 与 miniprogram/utils/divide.js 的 STAR_LEVEL 必须一致：这里是"高分球员"的界线，
+// 客户端拿它分队、这里拿它重算队伍统计，两边不一致就会出现"分队时按 5 分算、
+// 展示时说 4 分算高分"的怪数字。tests/check-pages.js 会断言两者相同。
+const STAR_LEVEL = 5
 const MAX_CONSTRAINTS = 200
 const MAX_TOURNAMENTS = 50
 const MIN_TEAMS = 2
 const MAX_TEAMS = 20
+
+/**
+ * 队内名单的展示顺序：按姓名。**不能按水平排**——分队结果是发布给所有人看的，
+ * 按水平从高到低排等于把组织者对每个人的评级直接念出来。
+ */
+function compareName (a, b) {
+  return String(a.name || '').localeCompare(String(b.name || ''), 'zh-Hans-CN')
+}
 
 /** 管理权校验。管理员和组织者可以管任意活动，创建者管自己建的活动。 */
 function requireManage (evt, r) {
@@ -453,10 +464,7 @@ const actions = {
         // 报名记录被删掉的情况下给个占位，避免整页渲染不出来。
         return su.byId[id] || { _id: id, name: '(已退出)', gender: 'U', level: 0 }
       })
-      members.sort(function (a, b) {
-        if (b.level !== a.level) return b.level - a.level
-        return a.name < b.name ? -1 : a.name > b.name ? 1 : 0
-      })
+      members.sort(compareName)
       return {
         index: team.index,
         name: team.name,

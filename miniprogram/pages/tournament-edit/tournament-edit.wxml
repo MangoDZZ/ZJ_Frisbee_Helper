@@ -28,6 +28,44 @@
       <view class="field-hint">
         默认全选报名名单，取消这场没来的人。只有检录过的人会参与本场分队。
       </view>
+
+      <!-- 粘贴一段名单自动勾选：现场一条条点太慢，群里复制过来更快 -->
+      <view class="paste-box">
+        <textarea class="paste-input" value="{{pasteText}}" bindinput="onPasteInput"
+                  maxlength="-1" auto-height
+                  placeholder="粘贴到场名单，一行一个，例如：&#10;1.张三&#10;2.李四&#10;3.王五"></textarea>
+        <view class="btn-bar gap">
+          <button class="btn btn-plain btn-sm" bindtap="applyPaste"
+                  disabled="{{lockedReason !== ''}}">识别并勾选</button>
+          <button wx:if="{{pasteText}}" class="btn btn-ghost btn-sm" bindtap="clearPaste">清空</button>
+        </view>
+        <view class="field-hint">
+          按上面这段名单重新勾选（已勾选的会按识别结果重置），编号和备注会自动去掉。
+          认不出来的人不会自动勾选，请到下面手动点。
+        </view>
+
+        <view wx:if="{{pasteInfo}}" class="paste-result">
+          <view class="small">
+            共 {{pasteInfo.total}} 条：识别 {{pasteInfo.matchedCount}} 人<text
+              wx:if="{{pasteInfo.skipped > 0}}">，跳过 {{pasteInfo.skipped}} 条重复/空行</text>
+          </view>
+          <view wx:if="{{pasteInfo.unmatched.length > 0}}" class="paste-miss">
+            <text class="small strong">未识别名单</text>
+            <view class="options gap">
+              <view wx:for="{{pasteInfo.unmatched}}" wx:key="*this"
+                    class="option option-miss">{{item}}</view>
+            </view>
+          </view>
+          <view wx:if="{{pasteInfo.ambiguous.length > 0}}" class="paste-miss">
+            <text class="small strong">有歧义（对上了不止一个人，请手动勾选）</text>
+            <view class="options gap">
+              <view wx:for="{{pasteInfo.ambiguous}}" wx:key="*this"
+                    class="option option-miss">{{item}}</view>
+            </view>
+          </view>
+        </view>
+      </view>
+
       <view class="muted small gap">已选 {{checkedCount}} / {{roster.length}} 人</view>
 
       <view class="options gap">

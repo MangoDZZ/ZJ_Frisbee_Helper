@@ -51,6 +51,17 @@
       </view>
     </view>
 
+    <!-- 版本号：排查问题时先确认对方装的是哪一版 -->
+    <view class="card">
+      <view class="row-between">
+        <text class="card-title">关于</text>
+        <text class="muted small">{{version}}</text>
+      </view>
+      <view class="field-hint">
+        当前版本 {{version}}。反馈问题时请带上这个版本号，方便确认线上跑的是哪一版。
+      </view>
+    </view>
+
     <view class="footer-spacer"></view>
   </block>
 </view>

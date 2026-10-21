@@ -145,6 +145,16 @@ function checkInvariants (res, players, label) {
   ok(sumLevel === res.teams.reduce(function (a, t) { return a + t.stats.levelSum }, 0),
     tag + 'Σ水平和')
 
+  // 队内名单按姓名排，**不能按水平排**：分队结果要发布给所有人看，
+  // 按水平从高到低排等于公开组织者对每个人的评级。这里用中文名，顺带锁住"用拼音序"。
+  for (let i = 0; i < res.teams.length; i++) {
+    const names = res.teams[i].members.map(function (m) { return m.name })
+    const sorted = names.slice().sort(function (a, b) {
+      return String(a).localeCompare(String(b), 'zh-Hans-CN')
+    })
+    deepEq(names, sorted, tag + res.teams[i].name + ' 名单顺序')
+  }
+
   // 代价必须是有限数——NaN 会让择优静默失效
   const cb = res.costBreakdown
   ok(isFinite(cb.size) && isFinite(cb.gender) && isFinite(cb.star) &&
@@ -812,12 +822,15 @@ test('返回结构完整：teams / stats / seed / costBreakdown / warnings', fun
   ok(res.costBreakdown && typeof res.costBreakdown.total === 'number')
 })
 
-test('队内名单按水平降序展示', function () {
+test('队内名单按姓名排列，不泄露水平', function () {
+  // 水平故意和姓名顺序相反：如果还是按水平排，这里会变成 [d, c, b, a]
   const players = [P('a', 'M', 1), P('b', 'M', 5), P('c', 'M', 3), P('d', 'M', 4)]
   const res = divide(players, 1, [], 1019)
   checkInvariants(res, players, '展示顺序')
-  const lv = res.teams[0].members.map(function (m) { return m.level })
-  deepEq(lv, [5, 4, 3, 1])
+  const names = res.teams[0].members.map(function (m) { return m.name })
+  eq(names.join(','), 'a,b,c,d', '队内名单应按姓名（拼音/码位）升序')
+  deepEq(res.teams[0].memberIds, res.teams[0].members.map(function (m) { return m.id }),
+    'memberIds 必须跟着 members 一起排')
 })
 
 // ---------------------------------------------------------------- 汇总

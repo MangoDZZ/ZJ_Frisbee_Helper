@@ -2,6 +2,7 @@
 
 const api = require('../../utils/api.js')
 const fmt = require('../../utils/format.js')
+const config = require('../../config.js')
 
 Page({
   data: {
@@ -12,6 +13,8 @@ Page({
     canEditRoles: false,
     adminOpenid: '',
     myOpenid: '',
+    // 后台唯一能确认"线上是哪一版"的地方，排查问题时先让对方报这个
+    version: config.VERSION,
   },
 
   onShow: function () {

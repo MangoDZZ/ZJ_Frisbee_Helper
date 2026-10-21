@@ -1669,6 +1669,91 @@ add('组织者和管理员仍然看得到水平', async function () {
   ok(typeof tour.attendees[0].level === 'number', '组织者应看到赛前检录名单的水平')
 })
 
+const ROSTER_ORDER = function (x, y) {
+  return String(x).localeCompare(String(y), 'zh-Hans-CN')
+}
+
+/** 一队的人名是否按姓名升序。分队结果要发布给所有人看，不能按水平排。 */
+function namesSorted (members) {
+  const names = members.map(function (m) { return m.name })
+  const sorted = names.slice().sort(ROSTER_ORDER)
+  return names.join(',') === sorted.join(',')
+}
+
+add('分队名单按姓名排，不按水平排（防止公开评级）', async function () {
+  const ctx = await setupTournament([2, 2])
+
+  // 球员0 和 球员1 同队（名单是按报名顺序建的队）。
+  // 故意让"姓名靠前的人水平低"：按姓名排是 [1, 5]，按水平排会变成 [5, 1]。
+  const a0 = ctx.teams[0].memberIds[0]
+  const a1 = ctx.teams[0].memberIds[1]
+  await expectOk(as(OWNER, hatSignup, 'updateLevel', {
+    eventId: ctx.eventId, signupId: a0, adminLevel: 1,
+  }))
+  await expectOk(as(OWNER, hatSignup, 'updateLevel', {
+    eventId: ctx.eventId, signupId: a1, adminLevel: 5,
+  }))
+
+  const div = await expectOk(as(OWNER, hatTeam, 'getDivision',
+    { tournamentId: ctx.tournamentId }))
+  for (let i = 0; i < div.division.teams.length; i++) {
+    ok(namesSorted(div.division.teams[i].members),
+      '第 ' + (i + 1) + ' 队的人名应按姓名排序')
+  }
+
+  const teamA = div.division.teams.filter(function (t) {
+    return t.members.some(function (m) { return m._id === a0 })
+  })[0]
+  ok(teamA, 'a0 应该在某一队里')
+  const levels = teamA.members.map(function (m) { return m.level })
+  eq(levels.join(','), '1,5',
+    '按姓名排是 1、5；按水平排会变成 5、1。组织者仍看得到水平，只是不再用它排序')
+})
+
+add('参与者看到的名单同样是姓名序，且没有水平', async function () {
+  const ctx = await setupTournament([2, 2])
+  const before = await expectOk(as(OWNER, hatTeam, 'getDivision',
+    { tournamentId: ctx.tournamentId }))
+  await expectOk(as(OWNER, hatTeam, 'publish', {
+    tournamentId: ctx.tournamentId, divisionId: before.division._id,
+  }))
+
+  const div = await expectOk(as('player-0', hatTeam, 'getDivision',
+    { tournamentId: ctx.tournamentId }))
+  eq(div.canSeeLevel, false)
+  ok(JSON.stringify(div).indexOf('"level"') < 0, '参与者不该拿到 level')
+  for (let i = 0; i < div.division.teams.length; i++) {
+    ok(namesSorted(div.division.teams[i].members), '参与者看到的也是姓名序')
+  }
+})
+
+add('高分球员界线：4 分不算高分，5 分才算（与客户端 STAR_LEVEL 一致）', async function () {
+  const ctx = await setupTournament([2, 2])
+  const a0 = ctx.teams[0].memberIds[0]
+  const a1 = ctx.teams[0].memberIds[1]
+  await expectOk(as(OWNER, hatSignup, 'updateLevel', {
+    eventId: ctx.eventId, signupId: a0, adminLevel: 4,
+  }))
+  await expectOk(as(OWNER, hatSignup, 'updateLevel', {
+    eventId: ctx.eventId, signupId: a1, adminLevel: 5,
+  }))
+
+  // 重存一次分队让服务端按新水平重算 stats.star
+  await expectOk(as(OWNER, hatTeam, 'saveDivision', {
+    tournamentId: ctx.tournamentId,
+    teams: [
+      { name: '1队', memberIds: ctx.teams[0].memberIds },
+      { name: '2队', memberIds: ctx.teams[1].memberIds },
+    ],
+  }))
+  const div = await expectOk(as(OWNER, hatTeam, 'getDivision',
+    { tournamentId: ctx.tournamentId }))
+  const teamA = div.division.teams.filter(function (t) {
+    return t.members.some(function (m) { return m._id === a1 })
+  })[0]
+  eq(teamA.stats.star, 1, '同队里 4 分不算高分、5 分算，所以正好 1 个')
+})
+
 add('组织者拥有管理权限并可以看到水平', async function () {
   const ctx = await setupTournament([2, 2])
   const org = 'player-0'
