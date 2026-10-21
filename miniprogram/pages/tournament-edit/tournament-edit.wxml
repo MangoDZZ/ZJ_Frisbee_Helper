@@ -29,39 +29,34 @@
         默认全选报名名单，取消这场没来的人。只有检录过的人会参与本场分队。
       </view>
 
-      <!-- 粘贴一段名单自动勾选：现场一条条点太慢，群里复制过来更快 -->
-      <view class="paste-box">
-        <textarea class="paste-input" value="{{pasteText}}" bindinput="onPasteInput"
-                  maxlength="-1" auto-height
-                  placeholder="粘贴到场名单，一行一个，例如：&#10;1.张三&#10;2.李四&#10;3.王五"></textarea>
-        <view class="btn-bar gap">
-          <button class="btn btn-plain btn-sm" bindtap="applyPaste"
-                  disabled="{{lockedReason !== ''}}">识别并勾选</button>
-          <button wx:if="{{pasteText}}" class="btn btn-ghost btn-sm" bindtap="clearPaste">清空</button>
-        </view>
-        <view class="field-hint">
-          按上面这段名单重新勾选（已勾选的会按识别结果重置），编号和备注会自动去掉。
-          认不出来的人不会自动勾选，请到下面手动点。
-        </view>
+      <!-- 粘贴一段名单自动勾选：现场一条条点太慢，群里复制过来更快。
+           输入框放在全屏浮层里，不能放在页面正文——textarea 是原生组件，
+           层级永远高于 footer-bar，正文里滚到底栏上方时会把它盖住。 -->
+      <view class="paste-entry">
+        <button class="btn btn-plain btn-sm" bindtap="openPaste"
+                disabled="{{lockedReason !== ''}}">
+          {{pasteText ? '改粘贴名单' : '粘贴名单'}}
+        </button>
+        <text class="field-hint">从群里复制名单，一次勾完</text>
+      </view>
 
-        <view wx:if="{{pasteInfo}}" class="paste-result">
-          <view class="small">
-            共 {{pasteInfo.total}} 条：识别 {{pasteInfo.matchedCount}} 人<text
-              wx:if="{{pasteInfo.skipped > 0}}">，跳过 {{pasteInfo.skipped}} 条重复/空行</text>
+      <view wx:if="{{pasteInfo}}" class="paste-result">
+        <view class="small">
+          共 {{pasteInfo.total}} 条：识别 {{pasteInfo.matchedCount}} 人<text
+            wx:if="{{pasteInfo.skipped > 0}}">，跳过 {{pasteInfo.skipped}} 条重复/空行</text>
+        </view>
+        <view wx:if="{{pasteInfo.unmatched.length > 0}}" class="paste-miss">
+          <text class="small strong">未识别名单</text>
+          <view class="options gap">
+            <view wx:for="{{pasteInfo.unmatched}}" wx:key="*this"
+                  class="option option-miss">{{item}}</view>
           </view>
-          <view wx:if="{{pasteInfo.unmatched.length > 0}}" class="paste-miss">
-            <text class="small strong">未识别名单</text>
-            <view class="options gap">
-              <view wx:for="{{pasteInfo.unmatched}}" wx:key="*this"
-                    class="option option-miss">{{item}}</view>
-            </view>
-          </view>
-          <view wx:if="{{pasteInfo.ambiguous.length > 0}}" class="paste-miss">
-            <text class="small strong">有歧义（对上了不止一个人，请手动勾选）</text>
-            <view class="options gap">
-              <view wx:for="{{pasteInfo.ambiguous}}" wx:key="*this"
-                    class="option option-miss">{{item}}</view>
-            </view>
+        </view>
+        <view wx:if="{{pasteInfo.ambiguous.length > 0}}" class="paste-miss">
+          <text class="small strong">有歧义（对上了不止一个人，请手动勾选）</text>
+          <view class="options gap">
+            <view wx:for="{{pasteInfo.ambiguous}}" wx:key="*this"
+                  class="option option-miss">{{item}}</view>
           </view>
         </view>
       </view>
@@ -89,4 +84,24 @@
   <button class="btn" bindtap="submit" disabled="{{submitting}}">
     {{editing ? '保存修改' : '创建分队'}}
   </button>
+</view>
+
+<!-- 粘贴名单浮层。放在 footer-bar 之后、用普通 view 盖住它；
+     里面的 textarea 是原生组件，所以固定高度并限制在浮层上半部分，
+     绝不与底栏的位置重叠，否则它照样会把底栏盖掉。 -->
+<view wx:if="{{pasteOpen}}" class="paste-mask" bindtap="closePaste" catchtouchmove="noop">
+  <view class="paste-panel" catchtap="noop">
+    <view class="card-title">粘贴到场名单</view>
+    <view class="field-hint">
+      一行一个，也可以用逗号、顿号分隔。行首编号和括号里的备注会自动去掉。
+      识别后按这段名单重新勾选（原来的勾选会被覆盖），认不出来的人会列在下面让你手动补。
+    </view>
+    <textarea class="paste-input" value="{{pasteText}}" bindinput="onPasteInput"
+              maxlength="-1" show-confirm-bar="{{false}}" cursor-spacing="24"
+              placeholder="1.张三&#10;2.李四&#10;3.王五"></textarea>
+    <view class="btn-bar gap">
+      <button class="btn btn-ghost btn-sm" bindtap="closePaste">取消</button>
+      <button class="btn btn-plain btn-sm" bindtap="applyPaste">识别并勾选</button>
+    </view>
+  </view>
 </view>

@@ -20,7 +20,8 @@ Page({
 
     // 粘贴名单（v1.0.3）：pasteInfo 为 null 表示还没识别过
     pasteText: '',
-    pasteInfo: null,     // { matchedCount, unmatched: [], ambiguous: [], skipped: 0 }
+    pasteOpen: false,    // 浮层是否展开
+    pasteInfo: null,     // { total, matchedCount, unmatched: [], ambiguous: [], skipped: 0 }
   },
 
   onLoad: function (q) {
@@ -77,6 +78,7 @@ Page({
           // 名单换了，上一次粘贴的识别结果就作废（id 可能已经变了）
           pasteText: '',
           pasteInfo: null,
+          pasteOpen: false,
         }, extra || {}))
       })
       .catch(function (e) {
@@ -118,12 +120,27 @@ Page({
 
   // ---------------------------------------------------------------- 粘贴名单
 
-  onPasteInput: function (e) {
-    this.setData({ pasteText: e.detail.value })
+  /**
+   * 粘贴框放在全屏浮层里而不是页面正文。
+   *
+   * textarea 是微信的原生组件，层级永远高于同层的普通 view——正文里的固定底栏
+   * 根本盖不住它，名单长一点滚到底栏上方就会把「创建分队」压住（v1.0.3 的 bug）。
+   * 浮层是普通 view，能盖住底栏；框固定高度、只占浮层上半部分，两者不重叠。
+   */
+  openPaste: function () {
+    if (this.data.lockedReason) return warn('已有比赛记录，不能改名单')
+    this.setData({ pasteOpen: true })
   },
 
-  clearPaste: function () {
-    this.setData({ pasteText: '', pasteInfo: null })
+  closePaste: function () {
+    this.setData({ pasteOpen: false })
+  },
+
+  /** 浮层里 catchtouchmove 用，阻止背景跟着滚。 */
+  noop: function () {},
+
+  onPasteInput: function (e) {
+    this.setData({ pasteText: e.detail.value })
   },
 
   /**
@@ -151,7 +168,7 @@ Page({
       skipped: parsed.skipped,
     }
 
-    // 一个都没认出来时不要动当前勾选，否则等于把名单清空了
+    // 一个都没认出来时不要动当前勾选，否则等于把名单清空了；浮层留着方便改
     if (res.matched.length === 0) {
       this.setData({ pasteInfo: info })
       return warn('没能识别出任何报名者')
@@ -162,7 +179,13 @@ Page({
     const list = d.roster.map(function (m) {
       return Object.assign({}, m, { checked: !!picked[m._id] })
     })
-    this.setData({ roster: list, checkedCount: res.matched.length, pasteInfo: info })
+    // 识别完就收起浮层，好让组织者立刻看到勾选结果和未识别名单
+    this.setData({
+      roster: list,
+      checkedCount: res.matched.length,
+      pasteInfo: info,
+      pasteOpen: false,
+    })
 
     const miss = res.unmatched.length + res.ambiguous.length
     wx.showToast({
