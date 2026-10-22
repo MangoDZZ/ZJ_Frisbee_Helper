@@ -63,6 +63,39 @@ function winnerOf (match) {
 function asArray (v) { return Array.isArray(v) ? v : [] }
 
 /**
+ * 把逐分明细累计到 rowOf 里的人头上，返回场次与总分条数。
+ *
+ * 只有**有逐分明细**的比赛才统计：老比赛只有比分，分不出谁得了哪一分。
+ * 积分榜的"得分+助攻"并列判定和数据页的榜单必须是同一套数，所以两边共用这一处。
+ *
+ * row 需要具备 goals / assists / total 三个字段。
+ */
+function accumulatePoints (matches, rowOf) {
+  const list = asArray(matches)
+  let matchCount = 0
+  let pointCount = 0
+  for (let m = 0; m < list.length; m++) {
+    const pts = matchPoints(list[m])
+    if (pts.length === 0) continue
+    matchCount++
+    for (let i = 0; i < pts.length; i++) {
+      pointCount++
+      const scorer = rowOf[pts[i].scorer]
+      if (scorer) {
+        scorer.goals++
+        scorer.total++
+      }
+      const assist = pts[i].assist
+      if (assist && rowOf[assist]) {
+        rowOf[assist].assists++
+        rowOf[assist].total++
+      }
+    }
+  }
+  return { matchCount: matchCount, pointCount: pointCount }
+}
+
+/**
  * @param {Array}  matches     该活动下所有赛事的比赛记录
  * @param {object} signupsById 活动的全部报名 { [signupId]: { name, gender } }
  * @param {Array}  [adjustments] 随机事件调整 [{ signupIds: [...], delta: N }]
@@ -70,6 +103,9 @@ function asArray (v) { return Array.isArray(v) ? v : [] }
  *
  * 行里不带 level：积分榜对所有人可见，而球员水平是不公开的。
  * 也不带队伍——同一个人在不同赛事属于不同队，汇总层面没有唯一队伍。
+ *
+ * 行里带 goals / assists / total：**只用于"积分相同时"的并列判定**（v1.1.2），
+ * 页面也展示 total 让名次可解释。它不是积分的一部分，别把它加进 points。
  */
 function computeStandings (matches, signupsById, adjustments) {
   const byId = signupsById || {}
@@ -97,6 +133,10 @@ function computeStandings (matches, signupsById, adjustments) {
       mvpCount: 0,
       forfeitCount: 0,
       tournamentCount: 0,
+      // 得分 + 助攻：只用来做"积分相同时"的并列判定，也顺便给页面展示用
+      goals: 0,
+      assists: 0,
+      total: 0,
     }
     rowOf[id] = row
     rows.push(row)
@@ -196,19 +236,27 @@ function computeStandings (matches, signupsById, adjustments) {
     }
   })
 
+  // 得分 + 助攻：仅用于"积分相同时"的并列判定，页面也会展示它来解释名次。
+  // 与数据页共用 accumulatePoints，两边的数字必须一模一样——否则同一个人在两页
+  // 看到的进球数不同，名次就没法解释。
+  accumulatePoints(list, rowOf)
+
   rows.sort(function (a, b) {
     if (b.points !== a.points) return b.points - a.points
+    // 积分相同时按"得分 + 助攻"的总数排名（v1.1.2 第 4 条）。
+    // 这是唯一一条靠个人数据决定名次的规则，所以排在胜场/MVP 之前。
+    if (b.total !== a.total) return b.total - a.total
     if (b.won !== a.won) return b.won - a.won
     if (b.mvpCount !== a.mvpCount) return b.mvpCount - a.mvpCount
     return a.name < b.name ? -1 : a.name > b.name ? 1 : 0
   })
 
-  // 并列同名次：积分、胜场、MVP 三项都相同才算并列。
+  // 并列同名次：积分、得分+助攻、胜场、MVP 都相同才算并列。
   let lastKey = null
   let lastRank = 0
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i]
-    const key = r.points + '/' + r.won + '/' + r.mvpCount
+    const key = r.points + '/' + r.total + '/' + r.won + '/' + r.mvpCount
     if (key !== lastKey) {
       lastRank = i + 1
       lastKey = key
@@ -258,27 +306,7 @@ function computePointStats (matches, signupsById) {
     rows.push(row)
   }
 
-  const list = asArray(matches)
-  let matchCount = 0
-  let pointCount = 0
-  for (let m = 0; m < list.length; m++) {
-    const pts = matchPoints(list[m])
-    if (pts.length === 0) continue
-    matchCount++
-    for (let i = 0; i < pts.length; i++) {
-      pointCount++
-      const scorer = rowOf[pts[i].scorer]
-      if (scorer) {
-        scorer.goals++
-        scorer.total++
-      }
-      const assist = pts[i].assist
-      if (assist && rowOf[assist]) {
-        rowOf[assist].assists++
-        rowOf[assist].total++
-      }
-    }
-  }
+  const totals = accumulatePoints(matches, rowOf)
 
   // 得分优先、再助攻、最后按名字，保证同一份数据每次算出的顺序一致。
   rows.sort(function (a, b) {
@@ -291,8 +319,8 @@ function computePointStats (matches, signupsById) {
     rows: rows,
     totals: {
       playerCount: rows.length,
-      matchCount: matchCount,
-      pointCount: pointCount,
+      matchCount: totals.matchCount,
+      pointCount: totals.pointCount,
     },
   }
 }

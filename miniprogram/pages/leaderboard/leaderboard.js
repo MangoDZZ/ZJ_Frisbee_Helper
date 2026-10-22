@@ -63,6 +63,11 @@ Page({
                 ? '含随机事件 ' + (r.eventDelta > 0 ? '+' : '') + r.eventDelta
                 : '',
               resetText: r.reset ? '累计弃赛 ' + ruleValue(d.rules, 'forfeitReset') + ' 次，积分归零' : '',
+              // 积分相同时按"得分+助攻"排名，所以必须把这条数据摆出来——否则同样的积分
+              // 却一个第三一个第四，看榜的人无法自己核对。没有逐分明细时不显示。
+              pointText: r.total > 0
+                ? '得分 ' + r.goals + ' · 助攻 ' + r.assists + '（共 ' + r.total + '）'
+                : '',
               recordText: r.played > 0 || r.forfeitCount > 0
                 ? r.tournamentCount + ' 场赛事 · ' + r.played + ' 战 ' +
                   r.won + ' 胜 ' + r.lost + ' 负' +
@@ -103,7 +108,7 @@ function ruleValue (raw, key) {
   return isFinite(n) ? n : RULE_FALLBACK[key]
 }
 
-/** 把规则拆成分级条目（胜负 / MVP / 弃赛），一条一行。 */
+/** 把规则拆成分级条目（胜负 / MVP / 弃赛 / 并列判定），一条一行。 */
 function ruleGroupsOf (raw) {
   const r = {
     win: ruleValue(raw, 'win'),
@@ -116,5 +121,6 @@ function ruleGroupsOf (raw) {
     { label: '胜负', text: '胜 +' + r.win + '　负 +' + r.loss },
     { label: 'MVP', text: '每获选一次 +' + r.mvp },
     { label: '弃赛', text: r.forfeit + ' 分，累计 ' + r.forfeitReset + ' 次积分归零' },
+    { label: '同分', text: '积分相同时，比得分 + 助攻的总数' },
   ]
 }

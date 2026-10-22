@@ -1840,6 +1840,44 @@ add('未上场的人不得分', async function () {
   eq(board.totals.playedCount, 4)
 })
 
+add('积分榜：积分相同时按得分+助攻总数排名，且与数据页数字一致', async function () {
+  const ctx = await setupTournament([2, 2])
+  const winA = ctx.teams[0].memberIds     // 球员0、球员1
+  const loseB = ctx.teams[1].memberIds    // 球员2、球员3
+
+  // 只有一场比赛：A 队赢。球员2 是败方但进球 2 次，球员3 没有个人数据，
+  // 两人都是 1 分 → 同分，应该按得分+助攻把球员2 排在球员3 前面。
+  await expectOk(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+    points: [
+      { team: 'A', scorer: winA[0], assist: null },
+      { team: 'A', scorer: winA[0], assist: null },
+      { team: 'A', scorer: winA[0], assist: null },
+      { team: 'B', scorer: loseB[0], assist: null },
+      { team: 'B', scorer: loseB[0], assist: loseB[1] },
+    ],
+  })))
+
+  const board = await expectOk(as(OWNER, hatMatch, 'leaderboard', { eventId: ctx.eventId }))
+  const r2 = board.rows.filter(function (x) { return x.name === '球员2' })[0]
+  const r3 = board.rows.filter(function (x) { return x.name === '球员3' })[0]
+  eq(r2.points, 1)
+  eq(r3.points, 1)
+  eq(r2.total, 2, '球员2 进 2 球')
+  eq(r3.total, 1, '球员3 助攻 1 次')
+  ok(r2.rank < r3.rank, '同分时个人数据多的排前面')
+
+  // 与得分助攻榜口径一致：同一个人在两张表上的得分/助攻必须一样
+  const stats = await expectOk(as(OWNER, hatMatch, 'pointStats', { eventId: ctx.eventId }))
+  stats.rows.forEach(function (s) {
+    const row = board.rows.filter(function (x) { return x.signupId === s.signupId })[0]
+    eq(row.goals, s.goals, s.name + ' 进球数')
+    eq(row.assists, s.assists, s.name + ' 助攻数')
+  })
+
+  // 仍然是公开数据，不能顺带把水平带出去
+  ok(JSON.stringify(board).indexOf('"level"') < 0, '积分榜不该带 level')
+})
+
 add('平局与非法比分被拒', async function () {
   const ctx = await setupTournament([2, 2])
   await expectErr(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, { scoreA: 12, scoreB: 12 })),

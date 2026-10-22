@@ -38,6 +38,7 @@
         <view class="lb-name">
           <text class="strong">{{item.name}}</text>
           <text class="muted small">{{item.recordText}}</text>
+          <text wx:if="{{item.pointText}}" class="muted small">{{item.pointText}}</text>
           <text wx:if="{{item.eventText}}" class="muted small">{{item.eventText}}</text>
           <text wx:if="{{item.resetText}}" class="muted small reset-text">{{item.resetText}}</text>
         </view>

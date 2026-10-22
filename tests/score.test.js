@@ -321,6 +321,143 @@ test('hasPoints：区分"有明细"和"老比赛"', function () {
   eq(score.hasPoints(match({ points: [] })), false)
 })
 
+// ---------------------------------------------------------------- 积分相同时的并列判定（v1.1.2）
+
+/** 一场 A 队获胜的比赛，按进球者名单自动生成逐分明细与上场名单。 */
+function withGoals (winScorers, loseScorers) {
+  const pts = []
+  winScorers.forEach(function (s) { pts.push(pt('A', s)) })
+  loseScorers.forEach(function (s) {
+    pts.push(Array.isArray(s) ? pt('B', s[0], s[1]) : pt('B', s))
+  })
+  return match({
+    scoreA: winScorers.length,
+    scoreB: loseScorers.length,
+    participantsA: uniqueOf(winScorers),
+    participantsB: uniqueOf(loseScorers.map(function (s) {
+      return Array.isArray(s) ? s[0] : s
+    })),
+    points: pts,
+  })
+}
+
+function uniqueOf (list) {
+  const out = []
+  list.forEach(function (x) { if (out.indexOf(x) < 0) out.push(x) })
+  return out
+}
+
+test('同分时按得分+助攻总数排名，优先于胜场数', function () {
+  // p1 赢一场拿 3 分，但一分没得（进球记在一个不在名单里的人名下，不影响任何人）
+  // p2 连输三场拿 3 分，场场进球 —— 与 p1 同分
+  const su = makeSignups(['p1', 'pz', 'p2', 'pw'])
+  const winFor = function (winner, loser) {
+    return match({
+      scoreA: 3, scoreB: 2,
+      participantsA: [winner], participantsB: [loser],
+      points: [pt('A', 'ghost'), pt('A', 'ghost'), pt('A', 'ghost'),
+        pt('B', loser), pt('B', loser)],
+    })
+  }
+
+  const res = score.computeStandings([
+    winFor('p1', 'pz'),
+    winFor('pw', 'p2'),
+    winFor('pw', 'p2'),
+    winFor('pw', 'p2'),
+  ], su)
+
+  const p1 = rowOf(res, 'p1')
+  const p2 = rowOf(res, 'p2')
+  eq(p1.points, 3, 'p1 赢一场 3 分')
+  eq(p2.points, 3, 'p2 输三场也是 3 分')
+  eq(p1.won, 1)
+  eq(p2.won, 0)
+  eq(p1.total, 0, 'p1 没有个人得分')
+  eq(p2.total, 6, 'p2 每场 2 球，三场 6 次')
+  ok(p2.rank < p1.rank, '同分时得分+助攻多的排前面（哪怕胜场更少）')
+  // pw 赢了 3 场拿 9 分，排在两人之前
+  eq(p2.rank, 2)
+  eq(p1.rank, 3)
+})
+
+test('得分+助攻总数相同就算并列，不看进球与助攻怎么分配', function () {
+  const su = makeSignups(['w1', 'p4', 'p5', 'p6'])
+  const res = score.computeStandings([
+    // 败方 B 队的 4 个进球：p4 进 2 传 1，p5 进 1 传 2 —— 合计都是 3
+    withGoals(['w1', 'w1', 'w1', 'w1'],
+      ['p4', ['p4', 'p5'], ['p5', 'p4'], ['p6', 'p5']]),
+  ], su)
+
+  const p4 = rowOf(res, 'p4')
+  const p5 = rowOf(res, 'p5')
+  eq(p4.goals, 2)
+  eq(p4.assists, 1)
+  eq(p5.goals, 1)
+  eq(p5.assists, 2)
+  eq(p4.points, p5.points, '同为败方，都是 1 分')
+  eq(p4.total, 3)
+  eq(p5.total, 3)
+  eq(p4.rank, p5.rank, '同为 3 次，应并列同名次')
+})
+
+test('得分+助攻也相同时，仍按胜场决定（旧规则不丢）', function () {
+  const su = makeSignups(['p1', 'pz', 'p2', 'pw'])
+  const winFor = function (winner, loser) {
+    return match({
+      scoreA: 3, scoreB: 0,
+      participantsA: [winner], participantsB: [loser],
+      points: [pt('A', 'ghost'), pt('A', 'ghost'), pt('A', 'ghost')],
+    })
+  }
+
+  const res = score.computeStandings([
+    winFor('p1', 'pz'),
+    winFor('pw', 'p2'),
+    winFor('pw', 'p2'),
+    winFor('pw', 'p2'),
+  ], su)
+
+  // p1 与 p2 都是 3 分、个人数据都是 0 → 回到胜场比较
+  eq(rowOf(res, 'p1').points, 3)
+  eq(rowOf(res, 'p2').points, 3)
+  eq(rowOf(res, 'p1').total, 0)
+  eq(rowOf(res, 'p2').total, 0)
+  ok(rowOf(res, 'p1').rank < rowOf(res, 'p2').rank, '胜场多的排前面')
+})
+
+test('没有逐分明细的老比赛：total 全是 0，不影响既有排序', function () {
+  const su = makeSignups(['a1', 'a2', 'b1'])
+  const res = score.computeStandings([
+    match({ scoreA: 15, scoreB: 10, participantsA: ['a1', 'a2'], participantsB: ['b1'] }),
+  ], su)
+  eq(rowOf(res, 'a1').total, 0)
+  eq(rowOf(res, 'a1').goals, 0)
+  eq(rowOf(res, 'a1').assists, 0)
+  eq(rowOf(res, 'a1').rank, 1)
+  eq(rowOf(res, 'b1').rank, 3)
+})
+
+test('积分榜的得分/助攻与数据页完全一致（同一套累计逻辑）', function () {
+  const su = makeSignups(['a1', 'a2', 'b1'])
+  const matches = [
+    match({
+      scoreA: 2, scoreB: 1,
+      participantsA: ['a1', 'a2'], participantsB: ['b1'],
+      points: [pt('A', 'a1', 'a2'), pt('A', 'a2'), pt('B', 'b1')],
+    }),
+  ]
+  const standings = score.computeStandings(matches, su)
+  const stats = score.computePointStats(matches, su)
+  for (let i = 0; i < stats.rows.length; i++) {
+    const s = stats.rows[i]
+    const t = rowOf(standings, s.signupId)
+    eq(t.goals, s.goals, s.name + ' 进球数两端一致')
+    eq(t.assists, s.assists, s.name + ' 助攻数两端一致')
+    eq(t.total, s.total, s.name + ' 合计两端一致')
+  }
+})
+
 test('得分 / 助攻统计：只认有明细的比赛', function () {
   const su = makeSignups(['a1', 'a2', 'b1'])
   const res = score.computePointStats([
