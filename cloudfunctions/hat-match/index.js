@@ -68,6 +68,25 @@ async function loadMatchesOfEvent (eventId) {
 }
 
 /**
+ * 活动下每个赛事的最新一份分队，{ [tournamentId]: division }。
+ *
+ * publishedOnly 为 true 时只看已发布的——参与者不该从摘要里读到组织者还没定稿的分队。
+ * 按 version 升序遍历，后写入的覆盖前面的，所以拿到的就是最新版本。
+ */
+async function loadDivisionByTournament (eventId, publishedOnly) {
+  const cond = { eventId: eventId }
+  if (publishedOnly) cond.published = true
+  const rows = await fetchAll(function () {
+    return divisions.where(cond).orderBy('version', 'asc')
+  }, { label: '分组记录' })
+  const byTour = {}
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i].tournamentId) byTour[rows[i].tournamentId] = rows[i]
+  }
+  return byTour
+}
+
+/**
  * 校验一场比赛的全部字段。抽出来是因为 saveMatch 新建和更新都要用，
  * 两边各写一份一定会漂移。
  *
@@ -461,6 +480,8 @@ const actions = {
     // 组织者和管理员既能录战绩也能看未发布的分队；其他人只能看已发布的。
     const canScore = roles.canManageEvent(r, evt)
     const isOrganizer = canScore
+    const noView = await store.requireEventView(db, evt, r)
+    if (noView) return noView
 
     const dv = await loadPublishedDivision(tour._id)
     if (dv.error) {
@@ -489,6 +510,74 @@ const actions = {
   },
 
   /**
+   * 活动顶层的「比赛记录」摘要：最近几场的比分，给活动详情页直接展示。
+   *
+   * 为什么单开一个 action 而不是让前端逐场赛事去查：活动详情页只需要"最近两场"
+   * 这一点信息，为它把每个赛事的比赛列表都拉一遍是 N 次往返，赛事一多就卡。
+   *
+   * 队伍名要按**各自赛事的**分队解析——不同赛事的队号是不同的队。
+   * 参与者只能看到已发布分队的那些比赛，与单场赛事页的口径保持一致。
+   */
+  async recentMatches (d, r) {
+    const e = await store.loadEvent(db, d.eventId)
+    if (e.error) return e.error
+    const evt = e.value
+
+    const canManage = roles.canManageEvent(r, evt)
+    // 「仅限群聊转发可见」的活动连摘要都不能漏给看不到它的人
+    const noView = await store.requireEventView(db, evt, r)
+    if (noView) return noView
+
+    const rawLimit = asInt(d.limit)
+    const limit = rawLimit === null || rawLimit < 1 || rawLimit > 10 ? 2 : rawLimit
+
+    const tourRows = await fetchAll(function () {
+      return tournaments.where({ eventId: evt._id }).orderBy('createTime', 'asc')
+    }, { label: '活动赛事' })
+    const tourNameOf = {}
+    for (let i = 0; i < tourRows.length; i++) tourNameOf[tourRows[i]._id] = tourRows[i].name
+
+    // 每个赛事取最新（管理身份）或最新已发布（其他人）的一份分队
+    const byTour = await loadDivisionByTournament(evt._id, !canManage)
+
+    const all = await loadMatchesOfEvent(evt._id)
+    const list = []
+    // 倒序取最近的：all 是按 createTime 升序的
+    for (let i = all.length - 1; i >= 0 && list.length < limit; i--) {
+      const m = all[i]
+      const div = byTour[m.tournamentId]
+      if (!div) continue                     // 分队被删了 / 还没发布，跳过
+      const teams = div.teams || []
+      const teamA = teams[m.teamAIndex] || { name: '已失效的队' }
+      const teamB = teams[m.teamBIndex] || { name: '已失效的队' }
+      list.push({
+        _id: m._id,
+        tournamentId: m.tournamentId,
+        tournamentName: tourNameOf[m.tournamentId] || '赛事',
+        teamAName: teamA.name,
+        teamBName: teamB.name,
+        scoreA: m.scoreA,
+        scoreB: m.scoreB,
+        status: matchStatus(m.status),
+        hasPoints: score.hasPoints(m),
+        createTime: m.createTime,
+      })
+    }
+
+    // 只给"能点进去"的赛事 id：没有比赛时退到最新一场赛事，方便组织者直接去录
+    const lastTour = tourRows.length > 0 ? tourRows[tourRows.length - 1] : null
+    return ok({
+      list: list,
+      tournamentCount: tourRows.length,
+      entryTournamentId: list.length > 0 ? list[0].tournamentId
+        : (lastTour ? lastTour._id : ''),
+      entryTournamentName: list.length > 0
+        ? list[0].tournamentName
+        : (lastTour ? lastTour.name : ''),
+    })
+  },
+
+  /**
    * 积分榜：整个活动的汇总，把该活动下所有赛事的得分按人合并。
    * 实时推导，不读任何存量积分字段。返回里不含球员水平。
    */
@@ -497,6 +586,9 @@ const actions = {
     if (e.error) return e.error
     const evt = e.value
     const isOrganizer = roles.canManageEvent(r, evt)
+    // 群内可见的活动：连积分榜都不能对看不到活动的人开放
+    const noView = await store.requireEventView(db, evt, r)
+    if (noView) return noView
 
     // 参与者至少要有一场赛事已发布，才看得到积分榜。
     const pub = await divisions.where({ eventId: evt._id, published: true }).limit(1).count()
@@ -660,6 +752,8 @@ const actions = {
     if (e.error) return e.error
     const evt = e.value
     const isOrganizer = roles.canManageEvent(r, evt)
+    const noView = await store.requireEventView(db, evt, r)
+    if (noView) return noView
 
     const pub = await divisions.where({ eventId: evt._id, published: true }).limit(1).count()
     if (pub.total === 0 && !isOrganizer) {
@@ -711,6 +805,8 @@ const actions = {
     if (e.error) return e.error
     const evt = e.value
     const isOrganizer = roles.canManageEvent(r, evt)
+    const noView = await store.requireEventView(db, evt, r)
+    if (noView) return noView
 
     // 和积分榜同样的门槛：参与者至少要有一场赛事已发布。
     const pub = await divisions.where({ eventId: evt._id, published: true }).limit(1).count()

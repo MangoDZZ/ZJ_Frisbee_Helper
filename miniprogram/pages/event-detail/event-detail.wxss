@@ -24,3 +24,36 @@
   align-items: center;
   margin-top: 14rpx;
 }
+
+/* ---------- 最近比赛摘要 ---------- */
+.match-list {
+  margin-top: 12rpx;
+}
+.match-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10rpx 0;
+  font-size: 26rpx;
+  color: #374151;
+}
+.match-teams {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.match-score {
+  flex: none;
+  margin-left: 16rpx;
+  font-size: 30rpx;
+  font-weight: 600;
+  color: var(--theme);
+}
+/* 进行中的比分不是定稿，弱化成灰棕色，别让人以为是最终结果 */
+.match-live {
+  color: #96631a;
+  font-size: 24rpx;
+  font-weight: 500;
+}

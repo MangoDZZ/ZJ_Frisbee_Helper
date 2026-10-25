@@ -22,8 +22,8 @@ const sharedDir = path.join(root, 'shared')
 
 /** 哪个云函数需要哪几个共用模块。 */
 const TARGETS = {
-  'hat-event': ['common.js', 'roles.js', 'store.js'],
-  'hat-signup': ['common.js', 'roles.js', 'store.js'],
+  'hat-event': ['common.js', 'event-config.js', 'roles.js', 'store.js'],
+  'hat-signup': ['common.js', 'event-config.js', 'roles.js', 'store.js'],
   'hat-team': ['common.js', 'roles.js', 'store.js'],
   'hat-match': ['common.js', 'roles.js', 'store.js'],
   'hat-admin': ['common.js', 'roles.js'],

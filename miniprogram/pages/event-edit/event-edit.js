@@ -2,12 +2,14 @@
 
 const api = require('../../utils/api.js')
 const fmt = require('../../utils/format.js')
+const signupFields = require('../../utils/signup-fields.js')
 
 Page({
   data: {
     eventId: '',
     editing: false,
     submitting: false,
+    fieldRows: signupFields.configRows(null),
     form: {
       name: '',
       location: '',
@@ -20,6 +22,8 @@ Page({
       teamCount: '4',
       capacity: '24',
       notes: '',
+      // 「仅限群聊转发可见」：勾上后活动不进公开列表，只能凭分享链接进入
+      groupOnly: false,
     },
   },
 
@@ -49,6 +53,7 @@ Page({
         const en = fmt.splitTimestamp(e.endTime)
         const dl = fmt.splitTimestamp(e.signupDeadline)
         that.setData({
+          fieldRows: signupFields.configRows(e.signupFields),
           form: {
             name: e.name,
             location: e.location || '',
@@ -61,6 +66,7 @@ Page({
             teamCount: String(e.teamCount),
             capacity: String(e.capacity),
             notes: e.notes || '',
+            groupOnly: !!e.groupOnly,
           },
         })
       })
@@ -79,6 +85,31 @@ Page({
 
   clearEnd: function () {
     this.setData({ 'form.endDate': '', 'form.endTime': '' })
+  },
+
+  /** 勾选「仅限群聊转发可见」。 */
+  toggleGroupOnly: function (e) {
+    this.setData({ 'form.groupOnly': !!e.detail.value })
+  },
+
+  /**
+   * 报名表字段的两个开关：采集 / 必填。
+   *
+   * 「必填」只在采集时才有意义，所以关掉采集时顺手把必填一起关掉——否则会留下
+   * 一个"不采集但必填"的矛盾配置，用户下次打开会看到两个都亮着的开关。
+   */
+  toggleField: function (e) {
+    const key = e.currentTarget.dataset.key
+    const prop = e.currentTarget.dataset.prop
+    const on = !!e.detail.value
+    const rows = this.data.fieldRows.map(function (r) {
+      if (r.key !== key) return r
+      const next = Object.assign({}, r)
+      next[prop] = on
+      if (prop === 'enabled' && !on) next.required = false
+      return next
+    })
+    this.setData({ fieldRows: rows })
   },
 
   submit: function () {
@@ -121,6 +152,9 @@ Page({
       startTime: startTime,
       endTime: endTime,
       signupDeadline: signupDeadline,
+      // 报名表采集哪些字段 + 活动可见性
+      signupFields: this.collectSignupFields(),
+      visibility: f.groupOnly ? 'group' : 'public',
     }
 
     const that = this
@@ -140,6 +174,15 @@ Page({
       .catch(function () {
         that.setData({ submitting: false })
       })
+  },
+
+  /** fieldRows → 服务端要的 { [key]: { enabled, required } }。 */
+  collectSignupFields: function () {
+    const out = {}
+    this.data.fieldRows.forEach(function (r) {
+      out[r.key] = { enabled: !!r.enabled, required: !!(r.enabled && r.required) }
+    })
+    return out
   },
 
   removeEvent: function () {

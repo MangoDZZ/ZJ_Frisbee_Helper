@@ -2,6 +2,7 @@
 
 const api = require('../../utils/api.js')
 const fmt = require('../../utils/format.js')
+const fields = require('../../utils/signup-fields.js')
 
 const LEVEL_OPTIONS = [
   { value: 1, label: 'L1', desc: '没有出接盘能力，没有打过比赛' },
@@ -18,6 +19,8 @@ Page({
     editing: false,
     levelOptions: LEVEL_OPTIONS,
     form: { name: '', gender: '', selfLevel: 0, phone: '', remark: '' },
+    // 这个活动要采集哪些字段（含是否必填），由组织者在活动设置里定
+    extraFields: [],
     submitting: false,
   },
 
@@ -28,16 +31,23 @@ Page({
     api.event('detail', { eventId: q.eventId }, { loading: '加载中' })
       .then(function (d) {
         const s = d.mySignup
+        // 报名表按活动自己的配置渲染：没采集的字段一律不显示
+        const extra = fields.visibleFields(d.event && d.event.signupFields)
+        const form = s ? {
+          name: s.name,
+          gender: s.gender,
+          selfLevel: s.selfLevel,
+          phone: s.phone || '',
+          age: s.age === null || s.age === undefined ? '' : String(s.age),
+          className: s.className || '',
+          studentId: s.studentId || '',
+          remark: s.remark || '',
+        } : Object.assign({ age: '', className: '', studentId: '' }, that.data.form)
         that.setData({
           eventName: d.event.name,
           editing: !!s,
-          form: s ? {
-            name: s.name,
-            gender: s.gender,
-            selfLevel: s.selfLevel,
-            phone: s.phone || '',
-            remark: s.remark || '',
-          } : that.data.form,
+          extraFields: extra,
+          form: form,
         })
         wx.setNavigationBarTitle({ title: s ? '修改报名信息' : '报名' })
       })
@@ -65,18 +75,29 @@ Page({
     if (!f.name.trim()) return warn('请填写姓名或昵称')
     if (!f.gender) return warn('请选择性别')
     if (!f.selfLevel) return warn('请选择你的水平')
-    if (f.phone && !/^[0-9+\-\s]{6,20}$/.test(f.phone.trim())) return warn('手机号格式不对')
 
-    const that = this
-    this.setData({ submitting: true })
-    api.signup('submit', {
+    for (let i = 0; i < this.data.extraFields.length; i++) {
+      const field = this.data.extraFields[i]
+      const msg = fields.checkValue(field, f[field.key])
+      if (msg) return warn(msg)
+    }
+
+    const payload = {
       eventId: this.data.eventId,
       name: f.name,
       gender: f.gender,
       selfLevel: f.selfLevel,
-      phone: f.phone,
       remark: f.remark,
-    }, { loading: '提交中' })
+    }
+    // 只提交这个活动采集的字段：多余的字段服务端也会丢掉，但别主动发
+    for (let i = 0; i < this.data.extraFields.length; i++) {
+      const key = this.data.extraFields[i].key
+      payload[key] = f[key] === undefined ? '' : f[key]
+    }
+
+    const that = this
+    this.setData({ submitting: true })
+    api.signup('submit', payload, { loading: '提交中' })
       .then(function (d) {
         wx.showToast({ title: d.updated ? '信息已更新' : '报名成功', icon: 'success' })
         setTimeout(function () { wx.navigateBack() }, 700)

@@ -123,6 +123,7 @@
             <text wx:if="{{item.isTest}}" class="tag tag-test">测试</text>
             <text wx:if="{{item.isImported}}" class="tag tag-imported">导入</text>
           </view>
+          <view wx:if="{{item.extraText}}" class="muted small">{{item.extraText}}</view>
           <view wx:if="{{item.remark}}" class="muted small">{{item.remark}}</view>
           <view wx:if="{{item.phone}}" class="muted small">{{item.phone}}</view>
         </view>

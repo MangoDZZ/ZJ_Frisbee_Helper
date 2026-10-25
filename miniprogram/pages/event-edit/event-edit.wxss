@@ -11,3 +11,35 @@
   height: 180rpx;
   box-sizing: border-box;
 }
+
+/* ---------- 报名表字段配置 ---------- */
+.cfg-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16rpx 0;
+  border-bottom: 2rpx solid #f4f5f7;
+}
+.cfg-row:last-child { border-bottom: none; }
+.cfg-locked { border-bottom: 2rpx solid #f4f5f7; }
+.cfg-label {
+  font-size: 28rpx;
+  color: #374151;
+}
+.cfg-main { flex: 1; min-width: 0; padding-right: 16rpx; }
+.cfg-toggles {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  flex: none;
+}
+.cfg-cap {
+  font-size: 22rpx;
+  color: #8a9099;
+}
+/* switch 默认尺寸在窄屏上会把一行挤成三行，缩到 0.8 倍 */
+.cfg-switch {
+  transform: scale(0.8);
+  transform-origin: center;
+}
+

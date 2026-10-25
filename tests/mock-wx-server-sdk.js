@@ -38,6 +38,9 @@ const command = {
   inc: function (v) { return cmd('inc', v) },
   set: function (v) { return cmd('set', v) },
   remove: function () { return cmd('remove', null) },
+  // 数组追加去重：群内可见活动记录"谁进来过"用它
+  addToSet: function (v) { return cmd('addToSet', v) },
+  push: function (v) { return cmd('push', v) },
 }
 
 function matchOne (actual, c) {
@@ -77,7 +80,14 @@ function applyPatch (doc, patch) {
       if (v.op === 'inc') doc[k] = (doc[k] || 0) + v.value
       else if (v.op === 'set') doc[k] = clone(v.value)
       else if (v.op === 'remove') delete doc[k]
-      else throw new Error('mock 未实现的更新指令：' + v.op)
+      else if (v.op === 'addToSet') {
+        const arr = Array.isArray(doc[k]) ? doc[k] : []
+        if (arr.indexOf(v.value) < 0) arr.push(clone(v.value))
+        doc[k] = arr
+      } else if (v.op === 'push') {
+        const arr = Array.isArray(doc[k]) ? doc[k] : []
+        doc[k] = arr.concat(clone(v.value))
+      } else throw new Error('mock 未实现的更新指令：' + v.op)
     } else {
       doc[k] = clone(v)
     }
@@ -239,6 +249,21 @@ module.exports = {
       const id = doc._id || newId(name)
       collectionOf(name).set(id, Object.assign({}, clone(doc), { _id: id }))
       return id
+    },
+    /**
+     * 直接改一条记录。用来构造"老版本的文档"（字段根本不存在），
+     * 值为 undefined 的键会被删掉，这样才真的模拟出"没有这个字段"。
+     */
+    update: function (name, id, patch) {
+      const col = collectionOf(name)
+      const cur = col.get(id)
+      if (!cur) throw new Error('mock.update 找不到 ' + name + '/' + id)
+      const next = clone(cur)
+      Object.keys(patch || {}).forEach(function (k) {
+        if (patch[k] === undefined) delete next[k]
+        else next[k] = clone(patch[k])
+      })
+      col.set(id, next)
     },
   },
 }

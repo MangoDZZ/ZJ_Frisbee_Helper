@@ -6,6 +6,8 @@ const fmt = require('../../utils/format.js')
 Page({
   data: {
     eventId: '',
+    // 「仅限群聊转发可见」的分享口令，从群链接带进来后要一直带着往下传
+    shareToken: '',
     loading: true,
     failMessage: '',
     event: null,
@@ -13,6 +15,10 @@ Page({
     canManage: false,
     mySignup: null,
     tournaments: [],
+    // 最近比赛（活动级摘要）：只取两场，直接在详情页显示比分
+    recentMatches: [],
+    matchEntryTournamentId: '',
+    matchEntryTournamentName: '',
     timeText: '',
     deadlineText: '',
     statusText: '',
@@ -26,7 +32,7 @@ Page({
   },
 
   onLoad: function (q) {
-    this.setData({ eventId: q.id || '' })
+    this.setData({ eventId: q.id || '', shareToken: q.t || '' })
   },
 
   onShow: function () {
@@ -35,15 +41,22 @@ Page({
 
   onShareAppMessage: function () {
     const e = this.data.event
+    // 群内可见的活动必须把口令带进链接，否则对方点开是"仅限群内成员查看"
+    const token = e && e.groupOnly && this.data.shareToken
+      ? '&t=' + this.data.shareToken
+      : ''
     return {
       title: e ? e.name + '｜' + this.data.timeText : '飞盘 HAT 活动',
-      path: '/pages/event-detail/event-detail?id=' + this.data.eventId,
+      path: '/pages/event-detail/event-detail?id=' + this.data.eventId + token,
     }
   },
 
   load: function () {
     const that = this
-    return api.event('detail', { eventId: this.data.eventId }, { loading: false, toastError: false })
+    return api.event('detail', {
+      eventId: this.data.eventId,
+      t: this.data.shareToken,
+    }, { loading: false, toastError: false })
       .then(function (d) {
         const e = d.event
         const expired = fmt.isSignupExpired(e)
@@ -52,6 +65,8 @@ Page({
           loading: false,
           failMessage: '',
           event: e,
+          // 服务端认了口令会回传它，之后分享给别人才带得出去
+          shareToken: d.shareToken || that.data.shareToken,
           isOwner: !!d.isOwner,
           canManage: !!d.canManage,
           mySignup: d.mySignup,
@@ -70,7 +85,7 @@ Page({
             : expired ? '已截止'
               : full ? '名额已满' : '',
         })
-        return that.loadTournaments()
+        return Promise.all([that.loadTournaments(), that.loadRecentMatches()])
       })
       .catch(function (err) {
         that.setData({ loading: false, failMessage: err.message })
@@ -90,6 +105,32 @@ Page({
       })
   },
 
+  /**
+   * 活动级的最近两场比分。比赛记录原来要点「赛事 → 某场 → 比赛记录」三层才看得到，
+   * 这里直接摆出来，点一下就能进。
+   */
+  loadRecentMatches: function () {
+    const that = this
+    return api.match('recentMatches', { eventId: this.data.eventId, limit: 2 },
+      { loading: false, toastError: false })
+      .then(function (d) {
+        that.setData({
+          recentMatches: (d.list || []).map(function (m) {
+            return Object.assign({}, m, {
+              scoreText: m.scoreA + ' : ' + m.scoreB,
+              live: m.status === 'live',
+            })
+          }),
+          matchEntryTournamentId: d.entryTournamentId || '',
+          matchEntryTournamentName: d.entryTournamentName || '',
+        })
+      })
+      .catch(function () {
+        // 摘要失败不影响详情页主体，静默留空即可
+        that.setData({ recentMatches: [] })
+      })
+  },
+
   goSignup: function () {
     wx.navigateTo({ url: '/pages/signup-form/signup-form?eventId=' + this.data.eventId })
   },
@@ -100,6 +141,20 @@ Page({
 
   goTournaments: function () {
     wx.navigateTo({ url: '/pages/tournaments/tournaments?eventId=' + this.data.eventId })
+  },
+
+  /**
+   * 进比赛记录界面。
+   *
+   * 比赛记录挂在赛事上，所以要有具体赛事才能进：有比赛时进"最近一场所在的赛事"，
+   * 一场都没有时退到最新一场赛事——组织者点进来本来就是为了去录战绩。
+   * 一个赛事都还没建时改去赛事列表（那才是该先做的事）。
+   */
+  goMatches: function () {
+    if (!this.data.matchEntryTournamentId) return this.goTournaments()
+    wx.navigateTo({
+      url: '/pages/matches/matches?tournamentId=' + this.data.matchEntryTournamentId,
+    })
   },
 
   goLeaderboard: function () {

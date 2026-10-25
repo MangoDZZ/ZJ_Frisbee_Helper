@@ -13,6 +13,7 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const common = require('./lib/common.js')
 const roles = require('./lib/roles.js')
 const store = require('./lib/store.js')
+const eventConfig = require('./lib/event-config.js')
 const importList = require('./lib/import-list.js')
 
 const db = cloud.database()
@@ -72,7 +73,10 @@ function makeTestSignup (eventId, batch, i) {
     gender: gender,
     selfLevel: level,
     adminLevel: null,
+    age: null,
     phone: '',
+    className: '',
+    studentId: '',
     remark: '测试数据',
     status: 'signed',
     isTest: true,
@@ -155,7 +159,17 @@ async function stripFromRandomEvents (eventId, signupIds) {
   return touched
 }
 
-function validateSignup (d) {
+/**
+ * 校验报名表。
+ *
+ * 分两段：前三个字段是固定的（姓名 / 性别 / 水平，分队和积分都要用，不允许关掉），
+ * 后面几个按**活动自己的 signupFields 配置**校验——不同活动采集的东西不一样，
+ * 所以配置必须作为参数传进来，不能在这里写死。
+ *
+ * @param {object} d    提交的数据
+ * @param {object} evt  活动文档（读它的 signupFields）
+ */
+function validateSignup (d, evt) {
   const name = trimStr(d.name)
   if (!name) return { error: err('INVALID_INPUT', '请填写姓名或昵称') }
   if (name.length > 20) return { error: err('INVALID_INPUT', '姓名不要超过 20 个字') }
@@ -168,9 +182,11 @@ function validateSignup (d) {
     return { error: err('INVALID_INPUT', '请选择水平（1-5）') }
   }
 
-  const phone = trimStr(d.phone)
-  if (phone && !/^[0-9+\-\s]{6,20}$/.test(phone)) {
-    return { error: err('INVALID_INPUT', '手机号格式不对') }
+  // 可配置字段：不采集的一律存空串，采集的按是否必填/格式校验。
+  // event-config 是与云环境无关的纯模块，只回 {code,message}，这里包成统一信封。
+  const extra = eventConfig.validateSignupValues(d, evt && evt.signupFields)
+  if (extra.error) {
+    return { error: err(extra.error.code, extra.error.message) }
   }
 
   return {
@@ -178,7 +194,10 @@ function validateSignup (d) {
       name: name,
       gender: gender,
       selfLevel: selfLevel,
-      phone: phone,
+      age: extra.value.age === '' ? null : extra.value.age,
+      phone: extra.value.phone,
+      className: extra.value.className,
+      studentId: extra.value.studentId,
       remark: trimStr(d.remark).slice(0, 200),
     },
   }
@@ -206,7 +225,7 @@ const actions = {
       return err('SIGNUP_CLOSED', '报名已截止')
     }
 
-    const v = validateSignup(d)
+    const v = validateSignup(d, evt)
     if (v.error) return v.error
 
     // 快速路径：已报名就直接改资料，不再占名额。
@@ -344,7 +363,6 @@ const actions = {
     if (e.error) return e.error
     const forbidden = requireManage(e.value, r)
     if (forbidden) return forbidden
-
     const all = await fetchAll(function () {
       return signups.where({ eventId: e.value._id, status: 'signed' })
         .orderBy('createTime', 'asc')
@@ -359,7 +377,10 @@ const actions = {
         adminLevel: s.adminLevel == null ? null : s.adminLevel,
         // 有效水平统一在这里算，前后端不要各算一遍。
         level: s.adminLevel == null ? s.selfLevel : s.adminLevel,
+        age: s.age === undefined || s.age === null ? '' : s.age,
         phone: s.phone || '',
+        className: s.className || '',
+        studentId: s.studentId || '',
         remark: s.remark || '',
         isTest: s.isTest === true,
         isImported: s.isImported === true,
@@ -430,7 +451,10 @@ const actions = {
           gender: s.gender,
           selfLevel: s.selfLevel,
           adminLevel: null,
+          age: null,
           phone: s.phone || '',
+          className: '',
+          studentId: '',
           remark: s.remark || '',
           status: 'signed',
           isImported: true,

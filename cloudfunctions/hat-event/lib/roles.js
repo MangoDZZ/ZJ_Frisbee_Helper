@@ -81,6 +81,32 @@ function canManageEvent (r, evt) {
   return !!evt && evt.ownerOpenid === r.openid
 }
 
+/**
+ * 谁能**看到**这场活动。
+ *
+ * 「仅限群聊转发可见」的活动不进公开列表，也不允许靠猜 id 打开：只有管理身份、
+ * 已经报名的人、以及**通过带 token 的分享链接进来过**的人能看到。
+ *
+ * 为什么要有"进来过"这一条：群里有人点开链接报了名，之后从「最近使用」重新进入、
+ * 或者在活动列表里找它，都不该突然消失。所以第一次用正确 token 打开时会把它记进
+ * evt.visitors，此后这个人就正常可见了。
+ *
+ * 注意这是**可见性**判定，不是权限：能看到不等于能操作任何东西，那些仍然由
+ * canManageEvent 和各自的业务校验把关。
+ *
+ * @param {object} r        调用者角色
+ * @param {object} evt      活动文档
+ * @param {object} [opts]   { hasSignup: 调用者是否已报名 }
+ */
+function canViewEvent (r, evt, opts) {
+  if (!evt) return false
+  if (evt.visibility !== 'group') return true
+  if (canManageEvent(r, evt)) return true
+  if (opts && opts.hasSignup) return true
+  const visitors = Array.isArray(evt.visitors) ? evt.visitors : []
+  return !!r && visitors.indexOf(r.openid) >= 0
+}
+
 module.exports = {
   ADMIN_OPENIDS: ADMIN_OPENIDS,
   ROLE_ADMIN: ROLE_ADMIN,
@@ -91,4 +117,5 @@ module.exports = {
   canCreateEvent: canCreateEvent,
   canManageRoles: canManageRoles,
   canManageEvent: canManageEvent,
+  canViewEvent: canViewEvent,
 }

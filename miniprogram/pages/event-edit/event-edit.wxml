@@ -99,6 +99,48 @@
     </view>
   </view>
 
+  <!-- 报名表字段：决定报名页长什么样，也决定哪些信息会被收上来 -->
+  <view class="card">
+    <view class="card-title">报名表字段</view>
+    <view class="field-hint">
+      姓名、性别、水平是必填项：分队按性别和水平做均衡，少一项就只能纯随机。
+      其余字段可以自己决定要不要采集、要不要必填。
+    </view>
+
+    <view class="cfg-row cfg-locked">
+      <text class="cfg-label">姓名 / 性别 / 水平</text>
+      <text class="muted small">始终采集且必填</text>
+    </view>
+
+    <view wx:for="{{fieldRows}}" wx:key="key" class="cfg-row">
+      <text class="cfg-label">{{item.label}}</text>
+      <view class="cfg-toggles">
+        <text class="cfg-cap">采集</text>
+        <switch class="cfg-switch" checked="{{item.enabled}}"
+                data-key="{{item.key}}" data-prop="enabled" bindchange="toggleField" />
+        <text class="cfg-cap">必填</text>
+        <switch class="cfg-switch" checked="{{item.required}}"
+                disabled="{{!item.enabled}}"
+                data-key="{{item.key}}" data-prop="required" bindchange="toggleField" />
+      </view>
+    </view>
+  </view>
+
+  <!-- 可见性：进不进入公开的活动列表 -->
+  <view class="card">
+    <view class="card-title">谁能看到</view>
+    <view class="row-between gap">
+      <view class="cfg-main">
+        <view class="strong">仅限群聊转发可见</view>
+        <view class="field-hint">
+          开启后这场活动不会出现在「全部活动」里，只能从分享到群里的链接进入；
+          进去过的人、已报名的人和你能看到。适合内部局。
+        </view>
+      </view>
+      <switch checked="{{form.groupOnly}}" bindchange="toggleGroupOnly" />
+    </view>
+  </view>
+
   <view wx:if="{{editing}}" class="card">
     <button class="btn btn-danger" bindtap="removeEvent">删除活动</button>
   </view>

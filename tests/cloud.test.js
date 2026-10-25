@@ -2552,6 +2552,249 @@ add('后台用户列表不显示测试账号', async function () {
   }), '测试数据不能出现在名单里')
 })
 
+// ================================================================ v1.1.3
+// 活动类型 / 报名表字段配置 / 群聊可见 / 活动级比赛记录摘要
+
+add('活动类型：新建活动是「个人积分赛」，老活动没有 type 也按它显示', async function () {
+  const id = await createEvent()
+  eq(mock.get('events', id).type, 'personal', 'type 要落库')
+
+  const d = await expectOk(as(OWNER, hatEvent, 'detail', { eventId: id }))
+  eq(d.event.type, 'personal')
+  eq(d.event.typeLabel, '个人积分赛')
+
+  const list = await expectOk(as(ALICE, hatEvent, 'list', {}))
+  eq(list.list[0].typeLabel, '个人积分赛')
+
+  // 模拟 v1.1.3 之前创建的活动：文档里根本没有 type 字段
+  mock.update('events', id, { type: undefined })
+  const old = await expectOk(as(OWNER, hatEvent, 'detail', { eventId: id }))
+  eq(old.event.type, 'personal', '缺 type 一律当个人积分赛')
+})
+
+add('报名表字段：默认只采集手机号，其它可配置字段即使提交也被丢弃', async function () {
+  const id = await createEvent()
+  const d = await expectOk(as(OWNER, hatEvent, 'detail', { eventId: id }))
+  eq(d.event.signupFields.phone.enabled, true, '手机号默认采集')
+  eq(d.event.signupFields.phone.required, false, '但不必填')
+  eq(d.event.signupFields.age.enabled, false, '年龄默认不采集')
+
+  await expectOk(as(ALICE, hatSignup, 'submit', Object.assign({ eventId: id }, signupForm({
+    age: 24, className: '高一(3)班', studentId: '20240101',
+  }))))
+  const s = mock.all('signups')[0]
+  eq(s.age, null, '不采集的字段不能留在库里')
+  eq(s.className, '')
+  eq(s.studentId, '')
+  eq(s.phone, '13800000000', '采集的字段照常保存')
+})
+
+add('报名表字段：组织者开启并设必填后，缺项会被挡下', async function () {
+  const id = await createEvent({
+    signupFields: {
+      age: { enabled: true, required: true },
+      phone: { enabled: false, required: false },
+      className: { enabled: true, required: false },
+    },
+  })
+
+  await expectErr(as(ALICE, hatSignup, 'submit', Object.assign({ eventId: id }, signupForm())),
+    'INVALID_INPUT', '年龄必填但没填')
+  await expectErr(as(ALICE, hatSignup, 'submit', Object.assign({ eventId: id }, signupForm({
+    age: 200,
+  }))), 'INVALID_INPUT', '年龄超范围')
+  await expectErr(as(ALICE, hatSignup, 'submit', Object.assign({ eventId: id }, signupForm({
+    age: 'abc',
+  }))), 'INVALID_INPUT', '年龄不是数字')
+
+  // 关掉手机号采集后，提交的手机号不应被保存，也不该因为格式不对而报错
+  await expectOk(as(ALICE, hatSignup, 'submit', Object.assign({ eventId: id }, signupForm({
+    age: 24, phone: 'abcdefg',
+  }))))
+  const s = mock.all('signups')[0]
+  eq(s.age, 24)
+  eq(s.phone, '', '关掉采集的字段不保存')
+  eq(s.className, '', '可选的班级可以不填')
+})
+
+add('报名表字段：班级/学号按长度校验，且组织者能在名单里看到', async function () {
+  const id = await createEvent({
+    signupFields: {
+      className: { enabled: true, required: true },
+      studentId: { enabled: true, required: false },
+    },
+  })
+  await expectErr(as(ALICE, hatSignup, 'submit', Object.assign({ eventId: id }, signupForm({
+    className: 'x'.repeat(31),
+  }))), 'INVALID_INPUT', '班级超长')
+
+  await expectOk(as(ALICE, hatSignup, 'submit', Object.assign({ eventId: id }, signupForm({
+    className: '高一(3)班', studentId: '20240101',
+  }))))
+  const roster = await expectOk(as(OWNER, hatSignup, 'listAll', { eventId: id }))
+  eq(roster.list[0].className, '高一(3)班')
+  eq(roster.list[0].studentId, '20240101')
+  eq(roster.list[0].age, '', '没采集的年龄不返回')
+
+  // 参与者自己也能在详情里看到自己填的内容
+  const mine = await expectOk(as(ALICE, hatEvent, 'detail', { eventId: id }))
+  eq(mine.mySignup.className, '高一(3)班')
+})
+
+add('报名表字段：老活动没有配置时行为与升级前一致', async function () {
+  const id = await createEvent()
+  // 模拟老文档：完全没有 signupFields
+  mock.update('events', id, { signupFields: undefined })
+  await expectOk(as(ALICE, hatSignup, 'submit', Object.assign({ eventId: id }, signupForm())))
+  await expectErr(as(BOB, hatSignup, 'submit', Object.assign({ eventId: id }, signupForm({
+    phone: 'abcdefg',
+  }))), 'INVALID_INPUT', '手机号格式仍然校验')
+})
+
+add('群聊可见：不进公开列表，没有口令打不开，有口令打开后就能看到', async function () {
+  const id = await createEvent({ visibility: 'group' })
+  const doc = mock.get('events', id)
+  eq(doc.visibility, 'group')
+  ok(doc.shareToken && doc.shareToken.length >= 16, '要有足够长的分享口令')
+  eq(doc.visitors.length, 0)
+
+  // 没进来过的人：列表里看不到
+  const before = await expectOk(as(ALICE, hatEvent, 'list', {}))
+  eq(before.list.length, 0, '群内活动不能出现在公开列表里')
+
+  // 没有口令 / 口令错误：详情被拒
+  await expectErr(as(ALICE, hatEvent, 'detail', { eventId: id }), 'FORBIDDEN')
+  await expectErr(as(ALICE, hatEvent, 'detail', { eventId: id, t: 'wrong-token' }), 'FORBIDDEN')
+
+  // 口令正确：能进，并且被记下来
+  const d = await expectOk(as(ALICE, hatEvent, 'detail', { eventId: id, t: doc.shareToken }))
+  eq(d.event.name, '周六晚 HAT 局')
+  eq(d.shareToken, doc.shareToken, '要把口令回传，好让他继续分享')
+
+  const after = await expectOk(as(ALICE, hatEvent, 'list', {}))
+  eq(after.list.length, 1, '进来过之后就应该出现在他的活动列表里')
+  eq(after.list[0].groupOnly, true)
+
+  // 别人还是看不到
+  const others = await expectOk(as(BOB, hatEvent, 'list', {}))
+  eq(others.list.length, 0)
+})
+
+add('报名表字段：老前端不传配置时，编辑活动不会把已有配置重置掉', async function () {
+  const id = await createEvent({
+    signupFields: {
+      age: { enabled: true, required: true },
+      className: { enabled: true, required: false },
+    },
+  })
+  // 模拟旧版前端：提交一个不含 signupFields / visibility 的表单
+  const form = eventForm({ name: '改个名字' })
+  const res = await expectOk(as(OWNER, hatEvent, 'update',
+    Object.assign({ eventId: id }, form)), '更新活动')
+  ok(res._id)
+
+  const doc = mock.get('events', id)
+  eq(doc.name, '改个名字')
+  eq(doc.signupFields.age.enabled, true, '没传配置就保持原样')
+  eq(doc.signupFields.age.required, true)
+  eq(doc.signupFields.className.enabled, true)
+  eq(doc.signupFields.phone.enabled, true, '默认字段也要在')
+})
+
+add('群聊可见：管理身份始终可见', async function () {
+  const id = await createEvent({ visibility: 'group' })
+
+  // 组织者和管理员本来就能管所有活动
+  const byOwner = await expectOk(as(OWNER, hatEvent, 'list', {}))
+  eq(byOwner.list.length, 1)
+  const byAdmin = await expectOk(as(ADMIN, hatEvent, 'detail', { eventId: id }))
+  eq(byAdmin.canManage, true)
+
+  // 参与者（没进来过）一律看不到
+  const byAlice = await expectOk(as(ALICE, hatEvent, 'list', {}))
+  eq(byAlice.list.length, 0)
+})
+
+add('群聊可见：已报名的人即使没有口令也能看', async function () {
+  const id = await createEvent({ visibility: 'group' })
+  const token = mock.get('events', id).shareToken
+  // 报名本身不需要"能看到"——他被分享了链接才来报名；这里直接造一条报名
+  mock.insert('signups', {
+    eventId: id, openid: ALICE, name: '张三', gender: 'M', selfLevel: 3,
+    adminLevel: null, phone: '', remark: '', status: 'signed', createTime: Date.now(),
+  })
+  const d = await expectOk(as(ALICE, hatEvent, 'detail', { eventId: id }))
+  eq(d.mySignup.name, '张三', '报过名就看得到，不需要再带口令')
+  const list = await expectOk(as(ALICE, hatEvent, 'list', {}))
+  eq(list.list.length, 1)
+  ok(token)
+})
+
+add('群聊可见：公开活动不受影响，口令字段为空', async function () {
+  const id = await createEvent()
+  const d = await expectOk(as(ALICE, hatEvent, 'detail', { eventId: id }))
+  eq(d.event.groupOnly, false)
+  eq(d.shareToken, '', '公开活动不需要口令')
+  const list = await expectOk(as(ALICE, hatEvent, 'list', {}))
+  eq(list.list.length, 1)
+})
+
+add('比赛记录摘要：返回最近两场比分，且按各自赛事的队伍名解析', async function () {
+  const ctx = await setupTournament([2, 2])
+  const teams = ctx.teams
+
+  // 没有比赛时：列表为空，入口指向已有的赛事
+  let r = await expectOk(as(OWNER, hatMatch, 'recentMatches', { eventId: ctx.eventId }))
+  eq(r.list.length, 0)
+  eq(r.entryTournamentId, ctx.tournamentId, '没有比赛时也要能点进去录')
+  eq(r.tournamentCount, 1)
+
+  for (let i = 0; i < 3; i++) {
+    await expectOk(as(OWNER, hatMatch, 'saveMatch', {
+      tournamentId: ctx.tournamentId,
+      teamAIndex: 0,
+      teamBIndex: 1,
+      scoreA: 10 + i,
+      scoreB: 5,
+      participantsA: teams[0].memberIds,
+      participantsB: teams[1].memberIds,
+      mvpIds: [],
+    }))
+  }
+
+  r = await expectOk(as(OWNER, hatMatch, 'recentMatches', { eventId: ctx.eventId, limit: 2 }))
+  eq(r.list.length, 2, '只返回限额内的场次')
+  eq(r.list[0].scoreA, 12, '最近的排在最前面')
+  eq(r.list[1].scoreA, 11)
+  eq(r.list[0].tournamentName, '第 1 场')
+  ok(r.list[0].teamAName && r.list[0].teamBName, '队伍名要解析出来')
+  eq(r.list[0].teamAName, '1队')
+  eq(r.entryTournamentId, ctx.tournamentId)
+})
+
+add('比赛记录摘要：参与者只看到已发布分队的比赛，且能读到摘要', async function () {
+  const ctx = await setupTournament([2, 2])
+  await expectOk(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, { scoreA: 15, scoreB: 9 })))
+
+  // 已发布 → 参与者能看到
+  const seen = await expectOk(as('player-0', hatMatch, 'recentMatches', { eventId: ctx.eventId }))
+  eq(seen.list.length, 1)
+  eq(seen.list[0].scoreA, 15)
+
+  // 撤销发布 → 摘要里也不该再出现（否则等于绕过"分队未发布"）
+  await expectOk(as(OWNER, hatTeam, 'unpublish', { tournamentId: ctx.tournamentId }))
+  const hidden = await expectOk(as('player-0', hatMatch, 'recentMatches', { eventId: ctx.eventId }))
+  eq(hidden.list.length, 0)
+})
+
+add('比赛记录摘要：群内可见活动对外人不给摘要', async function () {
+  const id = await createEvent({ visibility: 'group' })
+  await expectErr(as(ALICE, hatMatch, 'recentMatches', { eventId: id }), 'FORBIDDEN')
+  // 管理身份照常
+  const mine = await expectOk(as(OWNER, hatMatch, 'recentMatches', { eventId: id }))
+  eq(mine.list.length, 0)
+})
+
 add('端到端：用测试数据完成一次分队', async function () {
   const id = await createEvent({ capacity: 24, teamCount: 4 })
   await expectOk(as(ADMIN, hatSignup, 'seedTestSignups', { eventId: id, count: 24 }))

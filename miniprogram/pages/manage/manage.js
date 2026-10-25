@@ -77,11 +77,18 @@ Page({
     const nameById = {}
     const decorated = roster.map(function (s, i) {
       nameById[s._id] = s.name
+      // 活动采集了哪些字段就显示哪些：班级/学号/年龄只有在组织者开启采集时才有值，
+      // 全都拼成一行，避免每个字段占一行把名单拉得很长
+      const extras = []
+      if (s.age !== '' && s.age !== null && s.age !== undefined) extras.push(s.age + ' 岁')
+      if (s.className) extras.push(s.className)
+      if (s.studentId) extras.push('学号 ' + s.studentId)
       return Object.assign({}, s, {
         seq: i + 1,
         genderText: fmt.genderText(s.gender),
         levelText: fmt.levelText(s.level),
         overridden: s.adminLevel != null,
+        extraText: extras.join(' · '),
       })
     })
     const testCount = decorated.filter(function (s) { return s.isTest }).length

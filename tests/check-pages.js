@@ -284,6 +284,36 @@ if (!versionM) {
   }
 }
 
+// 报名表字段的 key 必须两端一致：服务端 shared/event-config.js 决定校验什么，
+// 小程序 utils/signup-fields.js 决定渲染什么。漂移的表现是"组织者勾了年龄，
+// 报名页却没有这一栏"，不会报错，只会静默少收数据。
+const clientFieldsPath = path.join(mp, 'utils', 'signup-fields.js')
+if (!fs.existsSync(clientFieldsPath)) {
+  bad('缺少 miniprogram/utils/signup-fields.js（报名表字段的前端镜像）')
+} else {
+  const sharedSrc = fs.readFileSync(path.join(sharedDir, 'event-config.js'), 'utf8')
+  const clientSrc = fs.readFileSync(clientFieldsPath, 'utf8')
+  function keysOf (src, marker) {
+    const at = src.indexOf(marker)
+    if (at < 0) return null
+    const end = src.indexOf(']', at)
+    const block = src.slice(at, end < 0 ? src.length : end)
+    const out = []
+    const re = /key:\s*'([A-Za-z]+)'/g
+    let m
+    while ((m = re.exec(block)) !== null) out.push(m[1])
+    return out
+  }
+  const sharedKeys = keysOf(sharedSrc, 'CONFIGURABLE_FIELDS = [')
+  const clientKeys = keysOf(clientSrc, 'CONFIGURABLE_FIELDS = [')
+  if (!sharedKeys || !clientKeys) {
+    bad('解析不出 CONFIGURABLE_FIELDS 的字段列表')
+  } else if (sharedKeys.join(',') !== clientKeys.join(',')) {
+    bad('报名表可配置字段不一致：shared/event-config.js 是 [' + sharedKeys.join(',') +
+      ']，miniprogram/utils/signup-fields.js 是 [' + clientKeys.join(',') + ']')
+  }
+}
+
 // ---------------------------------------------------------------- 汇总
 
 console.log('')

@@ -8,6 +8,10 @@
         <text class="card-title">{{event.name}}</text>
         <text class="tag {{statusClass}}">{{statusText}}</text>
       </view>
+      <view class="info-line">
+        <text class="info-key">类型</text>
+        <text>{{event.typeLabel}}{{event.groupOnly ? ' · 仅限群内' : ''}}</text>
+      </view>
       <view class="info-line"><text class="info-key">时间</text><text>{{timeText}}</text></view>
       <view wx:if="{{event.location}}" class="info-line">
         <text class="info-key">地点</text><text>{{event.location}}</text>
@@ -38,6 +42,26 @@
       </view>
     </view>
 
+    <!-- 比赛记录：原来要点「赛事 → 某场 → 比赛记录」三层才看得到，
+         这里直接给出入口和最近两场比分 -->
+    <view class="card" bindtap="goMatches">
+      <view class="row-between">
+        <text class="card-title">比赛记录</text>
+        <text class="muted small">
+          {{matchEntryTournamentId ? matchEntryTournamentName + ' ›' : '还没有赛事 ›'}}
+        </text>
+      </view>
+      <view wx:if="{{recentMatches.length > 0}}" class="match-list">
+        <view wx:for="{{recentMatches}}" wx:key="_id" class="match-line">
+          <text class="match-teams">{{item.teamAName}} vs {{item.teamBName}}</text>
+          <text class="match-score {{item.live ? 'match-live' : ''}}">
+            {{item.scoreText}}{{item.live ? ' 进行中' : ''}}
+          </text>
+        </view>
+      </view>
+      <view wx:else class="field-hint">还没有比赛记录</view>
+    </view>
+
     <!-- 赛事：一个活动里可以开多场，各自分队 -->
     <view wx:if="{{tournaments.length > 0}}" class="card" bindtap="goTournaments">
       <view class="row-between">
@@ -61,6 +85,10 @@
         <button class="btn btn-plain btn-sm" bindtap="goStats">查看数据</button>
         <button wx:if="{{canManage}}" class="btn btn-plain btn-sm"
                 bindtap="goRandomEvents">随机事件</button>
+      </view>
+      <!-- 群内可见的活动需要明确的分享入口：不分享出去就没有人能进来 -->
+      <view wx:if="{{event.groupOnly && canManage}}" class="gap">
+        <button class="btn btn-plain btn-sm" open-type="share">分享到群</button>
       </view>
     </view>
 

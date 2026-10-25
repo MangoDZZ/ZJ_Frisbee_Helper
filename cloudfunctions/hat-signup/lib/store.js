@@ -10,6 +10,7 @@
  */
 
 const common = require('./common.js')
+const roles = require('./roles.js')
 
 const trimStr = common.trimStr
 const err = common.err
@@ -40,6 +41,25 @@ async function loadTournament (db, tournamentId) {
 }
 
 /**
+ * 「仅限群聊转发可见」的活动的统一访问闸门。
+ *
+ * 这个判断必须挂在**所有**按 eventId 读数据的出口上，而不只是活动详情页：
+ * 活动 id 一旦出现在日志、分享记录或别人的调试面板里，只挡住详情页而放过
+ * 积分榜和报名名单，等于没设。所以凡是"按 eventId 读"的 action 都应该先过这里。
+ *
+ * @returns {null|object} 有权限返回 null，没权限返回可以直接 return 的错误信封
+ */
+async function requireEventView (db, evt, r) {
+  if (roles.canViewEvent(r, evt)) return null
+  const mine = await db.collection(signups).where({
+    eventId: evt._id, openid: r.openid, status: 'signed',
+  }).limit(1).get().catch(function () { return null })
+  const hasSignup = !!(mine && mine.data && mine.data.length > 0)
+  if (roles.canViewEvent(r, evt, { hasSignup: hasSignup })) return null
+  return err('FORBIDDEN', '这个活动仅限群内成员查看，请从群里的分享链接进入')
+}
+
+/**
  * 取这场活动的全部有效报名，同时给出 id → 记录的映射。
  *
  * 有效水平统一在这里算（adminLevel 覆盖 selfLevel），前后端和其他云函数都不要再算一遍。
@@ -67,4 +87,5 @@ module.exports = {
   loadEvent: loadEvent,
   loadTournament: loadTournament,
   loadSignups: loadSignups,
+  requireEventView: requireEventView,
 }

@@ -15,10 +15,12 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const common = require('./lib/common.js')
 const roles = require('./lib/roles.js')
 const store = require('./lib/store.js')
+const eventConfig = require('./lib/event-config.js')
 
 const db = cloud.database()
 const events = db.collection('events')
 const signups = db.collection('signups')
+const _ = db.command
 
 const ok = common.ok
 const err = common.err
@@ -29,6 +31,26 @@ const removeWhere = common.removeWhere
 
 const MAX_TEAM_COUNT = 20
 const MAX_CAPACITY = 500
+
+/**
+ * 「仅限群聊转发可见」的分享口令长度。
+ *
+ * 它不是密码，只是一个够长到猜不中的随机串：活动的 id 是可以被枚举猜到的
+ * （群成员、日志、分享记录里都可能出现），所以入口靠这个随机串而不是 id。
+ */
+const SHARE_TOKEN_LEN = 20
+
+/** 记录谁通过分享链接进来过。一个人只留一条，上限远大于活动人数就够了。 */
+const MAX_VISITORS = 500
+
+function makeShareToken () {
+  const chars = 'abcdefghijkmnpqrstuvwxyz23456789'
+  let out = ''
+  for (let i = 0; i < SHARE_TOKEN_LEN; i++) {
+    out += chars.charAt(Math.floor(Math.random() * chars.length))
+  }
+  return out
+}
 
 /** 校验活动表单。create 和 update 共用，避免两边规则漂移。 */
 function validateForm (d) {
@@ -73,6 +95,12 @@ function validateForm (d) {
       startTime: startTime,
       endTime: endTime,
       signupDeadline: signupDeadline,
+      // 报名表要采集哪些字段、哪些必填。老活动没有这个字段，normalize 会给出默认值，
+      // 而默认值就等于原来硬编码的行为（手机号选填，其余不采集）。
+      signupFields: eventConfig.normalizeSignupFields(d.signupFields),
+      visibility: d.visibility === eventConfig.VISIBILITY_GROUP
+        ? eventConfig.VISIBILITY_GROUP
+        : eventConfig.VISIBILITY_PUBLIC,
     },
   }
 }
@@ -88,6 +116,21 @@ function requireManage (evt, r) {
   return null
 }
 
+/**
+ * 记录"这个人通过分享链接进来过"，之后他在列表里就能看到这场活动。
+ *
+ * 用 addToSet 而不是读出来再写回去：并发进来两个人时后者不会把前者覆盖掉。
+ * 也刻意不 await 失败——记不上只是下次还得从群链接进来，不该让详情页打不开。
+ */
+function noteVisitor (eventId, openid, evt) {
+  if (!openid) return Promise.resolve()
+  const visitors = Array.isArray(evt.visitors) ? evt.visitors : []
+  if (visitors.indexOf(openid) >= 0) return Promise.resolve()
+  if (visitors.length >= MAX_VISITORS) return Promise.resolve()
+  return events.doc(eventId).update({ data: { visitors: _.addToSet(openid) } })
+    .catch(function () {})
+}
+
 const actions = {
   async create (d, r) {
     // 一般用户只能报名，不能发起活动。
@@ -98,12 +141,16 @@ const actions = {
 
     const now = Date.now()
     const doc = Object.assign({}, v.value, {
-      // 比赛分类：目前只实现 hat，联赛后续再加
-      type: 'hat',
+      // 活动类型：当前只有「个人积分赛」，落库是为了以后加别的类型时能区分
+      type: eventConfig.TYPE_PERSONAL,
       ownerOpenid: r.openid,
       status: 'open',
       signupCount: 0,
       remaining: v.value.capacity,
+      // 分享口令只对「仅限群聊转发可见」的活动有意义，但一律生成：
+      // 组织者事后把公开活动改成群内可见时，链接不会突然变。
+      shareToken: makeShareToken(),
+      visitors: [],
       createTime: now,
       updateTime: now,
     })
@@ -135,11 +182,17 @@ const actions = {
       remaining: v.value.capacity - evt.signupCount,
       updateTime: Date.now(),
     })
+    // 部署窗口期内线上还可能是旧版前端，它不知道这两个字段，提交时根本不会带上。
+    // 那就保持原值——否则组织者只是改个名字，精心配好的报名表就被重置成默认了。
+    if (d.signupFields === undefined) patch.signupFields = evt.signupFields
+    if (d.visibility === undefined) patch.visibility = eventConfig.visibilityOf(evt)
+    // 老活动没有 shareToken，第一次被改成"群内可见"时补一个。
+    if (!trimStr(evt.shareToken)) patch.shareToken = makeShareToken()
     await events.doc(evt._id).update({ data: patch })
     return ok({ _id: evt._id })
   },
 
-  /** 活动列表。任何人可见，附带"我是否是创建者""我是否已报名"。 */
+  /** 活动列表。公开活动人人可见，群内可见的只对"能看到的人"出现。 */
   async list (d, r) {
     const scope = d.scope === 'mine' ? 'mine' : 'all'
     const list = await fetchAll(function () {
@@ -160,8 +213,12 @@ const actions = {
     }
 
     // 权限判定是纯函数：角色已经取过一次，这里不能再逐条查库。
-    const out = list.map(function (e) {
-      return {
+    const out = []
+    for (let i = 0; i < list.length; i++) {
+      const e = list[i]
+      // 「仅限群聊转发可见」的活动不能出现在公开列表里，否则等于没设。
+      if (!roles.canViewEvent(r, e, { hasSignup: !!signedIds[e._id] })) continue
+      out.push({
         _id: e._id,
         name: e.name,
         location: e.location,
@@ -173,16 +230,24 @@ const actions = {
         signupCount: e.signupCount,
         remaining: e.remaining,
         status: e.status,
+        type: eventConfig.typeOf(e),
+        typeLabel: eventConfig.typeLabel(e),
+        groupOnly: eventConfig.visibilityOf(e) === eventConfig.VISIBILITY_GROUP,
         // isOwner 是"我创建的"（列表上打标签用），canManage 是"我能管"（组织者能管所有活动）。
         isOwner: e.ownerOpenid === r.openid,
         canManage: roles.canManageEvent(r, e),
         signed: !!signedIds[e._id],
-      }
-    })
+      })
+    }
     return ok({ list: out })
   },
 
-  /** 活动详情。不回传其他人的报名信息——手机号只有管理身份能看到。 */
+  /**
+   * 活动详情。不回传其他人的报名信息——手机号只有管理身份能看到。
+   *
+   * 「仅限群聊转发可见」的活动要凭分享口令进：口令对得上就记一笔 visitor，
+   * 之后这个人再看列表就能看到它（见 roles.canViewEvent）。
+   */
   async detail (d, r) {
     const e = await store.loadEvent(db, d.eventId)
     if (e.error) return e.error
@@ -196,6 +261,17 @@ const actions = {
     }).limit(1).get()
     const mySignup = (mine.data && mine.data[0]) || null
 
+    const visible = roles.canViewEvent(r, evt, { hasSignup: !!mySignup })
+    if (!visible) {
+      const token = trimStr(d.t)
+      if (!token || token !== trimStr(evt.shareToken)) {
+        return err('FORBIDDEN', '这个活动仅限群内成员查看，请从群里的分享链接进入')
+      }
+      // 口令对得上：记一笔，之后他在活动列表里也能看到这场活动
+      noteVisitor(evt._id, r.openid, evt)
+    }
+
+    const fields = eventConfig.normalizeSignupFields(evt.signupFields)
     return ok({
       event: {
         _id: evt._id,
@@ -210,8 +286,16 @@ const actions = {
         signupCount: evt.signupCount,
         remaining: evt.remaining,
         status: evt.status,
+        type: eventConfig.typeOf(evt),
+        typeLabel: eventConfig.typeLabel(evt),
+        groupOnly: eventConfig.visibilityOf(evt) === eventConfig.VISIBILITY_GROUP,
+        // 报名表的字段配置要给报名页用；它不是秘密，公开活动的报名表本来就人人可见
+        signupFields: fields,
         createTime: evt.createTime,
       },
+      // 分享口令只给"已经能看到这场活动"的人，好让他继续把链接转到别的群/人
+      shareToken: eventConfig.visibilityOf(evt) === eventConfig.VISIBILITY_GROUP
+        ? trimStr(evt.shareToken) : '',
       isOwner: evt.ownerOpenid === r.openid,
       canManage: canManage,
       mySignup: mySignup ? {
@@ -219,7 +303,10 @@ const actions = {
         name: mySignup.name,
         gender: mySignup.gender,
         selfLevel: mySignup.selfLevel,
-        phone: mySignup.phone,
+        phone: mySignup.phone || '',
+        age: mySignup.age === undefined ? '' : mySignup.age,
+        className: mySignup.className || '',
+        studentId: mySignup.studentId || '',
         remark: mySignup.remark,
         createTime: mySignup.createTime,
       } : null,

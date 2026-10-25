@@ -190,6 +190,9 @@ const actions = {
     if (e.error) return e.error
     const evt = e.value
     const isOrganizer = roles.canManageEvent(r, evt)
+    // 群内可见的活动，赛事列表同样不能对外人开放
+    const noView = await store.requireEventView(db, evt, r)
+    if (noView) return noView
 
     const res = await tournaments.where({ eventId: evt._id })
       .orderBy('createTime', 'asc').limit(MAX_TOURNAMENTS).get()
@@ -223,6 +226,8 @@ const actions = {
     const evt = t.value.evt
     const isOrganizer = roles.canManageEvent(r, evt)
     const seeLevel = isOrganizer
+    const noView = await store.requireEventView(db, evt, r)
+    if (noView) return noView
 
     const su = await store.loadSignups(db, tour.eventId)
     const attendees = (tour.attendeeIds || []).map(function (id) {
@@ -448,6 +453,8 @@ const actions = {
     const evt = t.value.evt
     const isOrganizer = roles.canManageEvent(r, evt)
     const seeLevel = isOrganizer
+    const noView = await store.requireEventView(db, evt, r)
+    if (noView) return noView
 
     let query = divisions.where({ tournamentId: tour._id })
     if (!isOrganizer) query = divisions.where({ tournamentId: tour._id, published: true })

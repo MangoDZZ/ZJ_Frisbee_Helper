@@ -26,6 +26,11 @@
       </view>
       <view class="card-meta">{{item.timeText}}</view>
       <view wx:if="{{item.location}}" class="card-meta">{{item.location}}</view>
+      <!-- 活动类型放在信息行里，不放进右上角的泡泡组：那组只表示状态，
+           混进"个人积分赛""仅限群内"会让状态一眼看不出来 -->
+      <view class="card-meta">
+        {{item.typeLabel}}{{item.groupOnly ? ' · 仅限群内' : ''}}
+      </view>
       <view class="card-meta">{{item.countText}} · {{item.teamCount}} 队</view>
       <!-- 组织者和管理员能管所有活动，这里给一条直达管理台的入口。
            卡片本身有 bindtap="openEvent"，所以必须用 catchtap 挡掉冒泡。 -->
