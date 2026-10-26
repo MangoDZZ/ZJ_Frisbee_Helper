@@ -118,6 +118,14 @@
   width: 56rpx;
   color: #8a9099;
 }
+/* 得分时刻：定宽且用等宽数字，扫一眼就能看出节奏 */
+.pt-time {
+  flex: none;
+  width: 96rpx;
+  color: #8a9099;
+  font-size: 24rpx;
+  font-variant-numeric: tabular-nums;
+}
 .pt-team {
   flex: 1;
   min-width: 0;
@@ -152,6 +160,58 @@
 .autosave-fail {
   color: #b4322c;
   font-size: 24rpx;
+}
+
+/* ---------- 时间轴（v1.1.4） ---------- */
+.clock-card {
+  padding: 18rpx 24rpx;
+  margin-bottom: 20rpx;
+  background: #fff;
+  border-radius: 16rpx;
+  box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.04);
+}
+.clock-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.clock-time {
+  font-size: 48rpx;
+  font-weight: 600;
+  color: var(--theme);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 1rpx;
+}
+.clock-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+.clock-target {
+  font-size: 26rpx;
+  color: #4b5563;
+}
+.clock-phase {
+  margin-top: 4rpx;
+  font-size: 22rpx;
+  color: #8a9099;
+}
+.clock-hint {
+  margin-top: 10rpx;
+  padding-top: 10rpx;
+  border-top: 2rpx solid #f4f5f7;
+  font-size: 24rpx;
+  color: #96631a;
+}
+
+/* 只读展示的备注（第三阶段） */
+.notes-readonly {
+  padding: 12rpx 16rpx;
+  font-size: 24rpx;
+  color: #6b7280;
+  background: #f7f8fa;
+  border-radius: 8rpx;
+  white-space: pre-wrap;
 }
 
 /* ---------- 最终比分 ---------- */

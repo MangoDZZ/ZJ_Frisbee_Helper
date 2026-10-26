@@ -25,8 +25,19 @@ const TARGETS = {
   'hat-event': ['common.js', 'event-config.js', 'roles.js', 'store.js'],
   'hat-signup': ['common.js', 'event-config.js', 'roles.js', 'store.js'],
   'hat-team': ['common.js', 'roles.js', 'store.js'],
-  'hat-match': ['common.js', 'roles.js', 'store.js'],
+  'hat-match': ['common.js', 'match-rules.js', 'roles.js', 'store.js'],
   'hat-admin': ['common.js', 'roles.js'],
+}
+
+/**
+ * 小程序端也要用的共用模块。
+ *
+ * 这些模块是**纯 JS**（不碰 wx、不碰 Node），所以同一份源码两个运行时都能跑。
+ * 小程序没法 require 仓库根目录，只能放一份副本进去；但和 lib/ 下的副本一样，
+ * 它们都是生成物，唯一可改的地方仍然是 shared/。
+ */
+const MINIPROGRAM_TARGETS = {
+  'miniprogram/utils': ['match-rules.js'],
 }
 
 let written = 0
@@ -56,6 +67,23 @@ Object.keys(TARGETS).forEach(function (fn) {
     fs.unlinkSync(path.join(libDir, file))
     removed++
     console.log('  删除多余副本 ' + fn + '/lib/' + file)
+  })
+})
+
+// 小程序端也要用的那几个（纯 JS 模块，两个运行时共用一份源码）
+Object.keys(MINIPROGRAM_TARGETS).forEach(function (dir) {
+  const destDir = path.join(root, dir)
+  if (!fs.existsSync(destDir)) {
+    console.error('找不到 ' + dir + '，目录被改名了？')
+    process.exit(1)
+  }
+  MINIPROGRAM_TARGETS[dir].forEach(function (file) {
+    const src = fs.readFileSync(path.join(sharedDir, file))
+    const dest = path.join(destDir, file)
+    if (fs.existsSync(dest) && fs.readFileSync(dest).equals(src)) return
+    fs.writeFileSync(dest, src)
+    written++
+    console.log('  同步 ' + dir + '/' + file)
   })
 })
 

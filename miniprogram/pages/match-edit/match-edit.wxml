@@ -22,6 +22,18 @@
     <view wx:if="{{autoSaveText}}" class="autosave {{autoSaveFailed ? 'autosave-fail' : ''}}"
           bindtap="retryAutoSave">{{autoSaveText}}</view>
 
+    <!-- 时间轴：开表后才显示。不停表，所以只是"已经打了多久" -->
+    <view wx:if="{{startedAt > 0}}" class="clock-card">
+      <view class="clock-row">
+        <text class="clock-time">{{clockText}}</text>
+        <view class="clock-side">
+          <text class="clock-target">{{clockTargetText}}</text>
+          <text wx:if="{{clockPhase}}" class="clock-phase">{{clockPhase}}</text>
+        </view>
+      </view>
+      <view wx:if="{{clockHint}}" class="clock-hint">{{clockHint}}</view>
+    </view>
+
     <!-- ==================== 阶段一：赛前检录 ==================== -->
     <block wx:if="{{stage === STAGE_LINEUP}}">
       <view class="card">
@@ -75,6 +87,14 @@
         </view>
       </view>
 
+      <!-- 本场备注：只属于这一场，显示在比赛记录界面的那张卡片上 -->
+      <view class="card">
+        <view class="card-title">本场备注</view>
+        <view class="field-hint">选填，会显示在比赛记录界面。比如天气、场地、争议判罚等。</view>
+        <textarea class="field-input textarea gap" value="{{notes}}" bindinput="onNotesInput"
+                  maxlength="200" placeholder="例：因雨中断 10 分钟" />
+      </view>
+
       <view class="footer-spacer"></view>
     </block>
 
@@ -91,6 +111,15 @@
       </view>
 
       <block wx:else>
+        <!-- 还没开表：给一个明确的入口。点了才创建这条进行中的记录 -->
+        <view wx:if="{{startedAt === 0}}" class="card">
+          <view class="card-title">还没开始计时</view>
+          <view class="field-hint">
+            开表后才会记录时间轴和中场时刻。也可以不开表直接记分，那样只有比分和逐分明细。
+          </view>
+          <button class="btn btn-plain gap" bindtap="startClock">开始计时</button>
+        </view>
+
         <view class="card">
           <view class="row-between">
             <text class="card-title">记一分</text>
@@ -146,7 +175,8 @@
         </view>
 
         <view wx:if="{{points.length > 0}}" class="pt-head">
-          <text class="pt-sec">#</text>
+          <text class="pt-seq">#</text>
+          <text class="pt-time">用时</text>
           <text class="pt-team">队伍</text>
           <text class="pt-name">得分</text>
           <text class="pt-name">助攻</text>
@@ -154,7 +184,8 @@
         </view>
 
         <view wx:for="{{points}}" wx:key="key" class="pt-row">
-          <text class="pt-sec">{{index + 1}}</text>
+          <text class="pt-seq">{{index + 1}}</text>
+          <text class="pt-time">{{item.timeText || '—'}}</text>
           <text class="pt-team">{{item.team === 'A' ? teamAName : teamBName}}</text>
           <text class="pt-name">{{item.scorerName}}</text>
           <text class="pt-name muted">{{item.assistName ? item.assistName : '—'}}</text>
@@ -178,6 +209,10 @@
         <view class="muted small center">
           {{teamAName}} {{scoreA}} — {{scoreB}} {{teamBName}} · {{pointsText}}
         </view>
+        <view wx:if="{{startedAt > 0}}" class="muted small center gap">
+          比赛用时 {{clockText}} · {{clockTargetText}}
+        </view>
+        <view wx:if="{{notes}}" class="notes-readonly gap">{{notes}}</view>
         <view class="btn-bar gap">
           <button class="btn btn-ghost btn-sm" bindtap="goLeaderboard">积分榜</button>
           <button class="btn btn-plain btn-sm" bindtap="goStats">查看数据</button>

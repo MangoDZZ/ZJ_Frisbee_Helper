@@ -236,6 +236,25 @@ FN_KEYS.forEach(function (k) {
   }
 })
 
+// 小程序端也用的纯 JS 模块（同一份源码两个运行时共用，见 scripts/sync-shared.js）
+const MINIPROGRAM_SHARED = ['match-rules.js']
+MINIPROGRAM_SHARED.forEach(function (file) {
+  const copyPath = path.join(mp, 'utils', file)
+  const srcPath = path.join(sharedDir, file)
+  if (!fs.existsSync(copyPath)) {
+    bad('缺少 miniprogram/utils/' + file + '，跑一下 node scripts/sync-shared.js')
+    return
+  }
+  if (fs.readFileSync(copyPath, 'utf8') !== fs.readFileSync(srcPath, 'utf8')) {
+    bad('miniprogram/utils/' + file + ' 与 shared/' + file + ' 不一致，' +
+      '跑一下 node scripts/sync-shared.js')
+  }
+  // 两个运行时共用的前提是它不碰任何一端专属的 API
+  const body = fs.readFileSync(srcPath, 'utf8')
+  if (/\bwx\./.test(body)) bad('shared/' + file + ' 用了 wx API，小程序之外跑不了')
+  if (/require\('(?!\.)/.test(body)) bad('shared/' + file + ' require 了外部包，小程序端没有')
+})
+
 // 管理员名单不能是空的，否则没人能管理组织者、也没人能接手管理权
 const rolesSrcPath = path.join(sharedDir, 'roles.js')
 if (fs.existsSync(rolesSrcPath)) {

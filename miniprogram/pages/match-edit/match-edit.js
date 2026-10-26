@@ -1,6 +1,7 @@
 'use strict'
 
 const api = require('../../utils/api.js')
+const mr = require('../../utils/match-rules.js')
 
 /**
  * 单场比赛页，按比赛进程分三个阶段：
@@ -72,6 +73,18 @@ Page({
     // 自动暂存的状态提示（v1.1.1）：空串表示还没存过，等第一次记分后才出现
     autoSaveText: '',
     autoSaveFailed: false,
+
+    // ---- 时间轴（v1.1.4） ----
+    // rules 来自赛事级配置；startedAt 是服务端给的开表时刻，0 表示还没开表
+    rules: mr.DEFAULT_RULES,
+    startedAt: 0,
+    // 比赛结束时刻：填上之后时间轴就定格在"打完那一刻"，不会随着打开页面又往前走
+    endedAt: 0,
+    clockText: '0:00',
+    clockTargetText: '',
+    clockHint: '',
+    clockPhase: '',
+    notes: '',
   },
 
   onLoad: function (q) {
@@ -95,12 +108,21 @@ Page({
           }),
           loading: false,
         })
-        if (q.matchId) return that.prefill(q.matchId)
-        return null
+        // 规则挂在赛事上，顺手把比赛列表也取回来：编辑已有比赛时正好用它回填，
+        // 新开一场时只用其中的 rules。
+        return that.loadMatches().then(function () {
+          if (q.matchId) return that.prefill(q.matchId)
+          return null
+        })
       })
       .catch(function (e) {
         that.setData({ loading: false, failMessage: e.message })
       })
+  },
+
+  onShow: function () {
+    // 从后台回来时把计时器接上（onHide 里会清掉）
+    this.startTicking()
   },
 
   /**
@@ -110,12 +132,14 @@ Page({
    * 销毁后才回来，但发出去就有机会成功；真正的兜底是"记一分存一次"。
    */
   onHide: function () {
+    this.stopTicking()
     if (this.data.manualScore) return
     if (!this.data.points.length) return
     this.autoSave()
   },
 
   onUnload: function () {
+    this.stopTicking()
     // 正常情况下每一分都已经自动存过了。只有保存失败过才会走到这里。
     if (this._saved || this.data.submitting) return
     if (!this.data.points.length) return
@@ -123,41 +147,60 @@ Page({
     wx.showToast({ title: '这次记录还没保存', icon: 'none' })
   },
 
-  /** 修改已有比赛时回填。复用 listMatches，不另开一个 getMatch 接口。 */
-  prefill: function (matchId) {
+  /** 取赛事规则 + 比赛列表。规则只有这里能拿到（listMatches 一起返回）。 */
+  loadMatches: function () {
     const that = this
     return api.match('listMatches', { tournamentId: this.data.tournamentId },
       { loading: false, toastError: false })
       .then(function (d) {
-        const m = (d.list || []).filter(function (x) { return x._id === matchId })[0]
-        if (!m) {
-          that.setData({ failMessage: '找不到这场比赛，可能已被删除' })
-          return
-        }
-        const idsA = m.participantsA.map(function (p) { return p._id })
-        const idsB = m.participantsB.map(function (p) { return p._id })
-        const hasPoints = (m.points || []).length > 0
+        that._matches = d.list || []
         that.setData({
           eventId: d.eventId || that.data.eventId,
-          teamAIndex: m.teamAIndex,
-          teamBIndex: m.teamBIndex,
-          teamAName: m.teamAName,
-          teamBName: m.teamBName,
-          rosterA: that.buildRoster(m.teamAIndex, idsA),
-          rosterB: that.buildRoster(m.teamBIndex, idsB),
-          points: that.decoratePoints(m.points || []),
-          manualScore: hasPoints ? null : { a: m.scoreA, b: m.scoreB },
-          mvpIds: m.mvps.map(function (p) { return p._id }),
-          forfeitIds: (m.forfeits || []).map(function (p) { return p._id }),
-          // 已结束的比赛直接落在第三阶段：打开就是看结果，不必再回到记分界面。
-          stage: m.status === 'live' ? STAGE_LIVE : STAGE_DONE,
-        }, function () {
-          that.refreshScore()
-          that.refreshMvp()
-          that.refreshForfeits()
-          that.refreshPending()
+          rules: mr.normalizeRules(d.rules),
         })
+        that.tickClock()
       })
+      .catch(function () {
+        that._matches = []
+      })
+  },
+
+  /** 修改已有比赛时回填。用 loadMatches 已经取回的列表，不再重复请求。 */
+  prefill: function (matchId) {
+    const that = this
+    const m = (this._matches || []).filter(function (x) { return x._id === matchId })[0]
+    if (!m) {
+      this.setData({ failMessage: '找不到这场比赛，可能已被删除' })
+      return Promise.resolve()
+    }
+    const idsA = m.participantsA.map(function (p) { return p._id })
+    const idsB = m.participantsB.map(function (p) { return p._id })
+    const hasPoints = (m.points || []).length > 0
+    this.setData({
+      teamAIndex: m.teamAIndex,
+      teamBIndex: m.teamBIndex,
+      teamAName: m.teamAName,
+      teamBName: m.teamBName,
+      rosterA: this.buildRoster(m.teamAIndex, idsA),
+      rosterB: this.buildRoster(m.teamBIndex, idsB),
+      points: this.decoratePoints(m.points || []),
+      manualScore: hasPoints ? null : { a: m.scoreA, b: m.scoreB },
+      mvpIds: m.mvps.map(function (p) { return p._id }),
+      forfeitIds: (m.forfeits || []).map(function (p) { return p._id }),
+      startedAt: m.startedAt || 0,
+      endedAt: m.endedAt || 0,
+      notes: m.notes || '',
+      // 已结束的比赛直接落在第三阶段：打开就是看结果，不必再回到记分界面。
+      stage: m.status === 'live' ? STAGE_LIVE : STAGE_DONE,
+    }, function () {
+      that.refreshScore()
+      that.refreshMvp()
+      that.refreshForfeits()
+      that.refreshPending()
+      that.tickClock()
+      that.startTicking()
+    })
+    return Promise.resolve()
   },
 
   /** checkedIds 为 null 表示全选——检录时默认全队上场，取消没来的人更快。 */
@@ -189,20 +232,109 @@ Page({
         scorerName: p.scorer.name,
         assist: p.assist ? p.assist._id : '',
         assistName: p.assist ? p.assist.name : '',
+        // 相对开表的秒数，时间轴按它画；老比赛为 null
+        t: typeof p.t === 'number' ? p.t : null,
+        timeText: typeof p.t === 'number' ? mr.formatClock(p.t) : '',
       }
     })
+  },
+
+  // ---------------------------------------------------------------- 时间轴
+
+  /**
+   * 每秒重算一次时间轴。
+   *
+   * 只改显示用的几个字段，不动 points，所以不会触发列表重排。
+   * 没开表或不在记分阶段就不需要计时器。
+   */
+  tickClock: function () {
+    const d = this.data
+    // 已结束的比赛按结束时刻算，否则打开旧比赛会看到"已用时 3000:00"
+    const now = d.endedAt > 0 ? d.endedAt : Date.now()
+    const st = mr.clockState(d.rules, d.startedAt, d.points, now)
+    const raised = st.targetRaised ? '（软时限后调整）' : ''
+    let phase = ''
+    if (st.halfReached) {
+      phase = st.inBreak
+        ? '中场休息'
+        : (st.halfReason === 'score' ? '上半场已过半' : '已过中场时刻')
+    }
+    this.setData({
+      clockText: mr.formatClock(st.elapsedSec),
+      clockTargetText: '目标 ' + st.target + ' 分' + raised,
+      clockHint: mr.clockHint(st),
+      clockPhase: phase,
+    })
+  },
+
+  startTicking: function () {
+    if (this._timer) return
+    if (!this.data.startedAt) return
+    if (this.data.stage === STAGE_LINEUP) return
+    const that = this
+    this._timer = setInterval(function () { that.tickClock() }, 1000)
+  },
+
+  stopTicking: function () {
+    if (!this._timer) return
+    clearInterval(this._timer)
+    this._timer = null
+  },
+
+  /**
+   * 开表。单独一次保存（0:0 的 live 记录），而不是等第一分。
+   *
+   * 为什么不让"进第二阶段"自动开表：那会凭空在比赛列表里创建一个 0:0 的进行中记录，
+   * 只是点错标签页也会留下垃圾数据。让记分员明确点一下「开始计时」更诚实。
+   */
+  startClock: function () {
+    const d = this.data
+    if (d.startedAt > 0 || d.manualScore || d.submitting) return
+    if (!this.checkLineup()) return
+
+    const that = this
+    this.setData({ autoSaveText: '开表中…' })
+    api.match('saveMatch', this.buildPayload('live'), { loading: '开表中', toastError: true })
+      .then(function (res) {
+        that.setData({
+          matchId: (res && res._id) || d.matchId,
+          startedAt: (res && res.startedAt) || Date.now(),
+          autoSaveText: '已开始计时',
+          autoSaveFailed: false,
+        })
+        that._saved = true
+        that.startTicking()
+        that.tickClock()
+      })
+      .catch(function () {
+        that.setData({ autoSaveText: '开表失败，点此重试', autoSaveFailed: true })
+      })
+  },
+
+  onNotesInput: function (e) {
+    // 备注不单独存：它包含在每次自动暂存和手动保存里
+    this.setData({ notes: e.detail.value })
   },
 
   // ---------------------------------------------------------------- 阶段切换
 
   gotoLive: function () {
     if (!this.checkLineup()) return
-    this.setData({ stage: STAGE_LIVE }, function () { this.refreshPending() }.bind(this))
+    this.setData({ stage: STAGE_LIVE }, function () {
+      this.refreshPending()
+      this.startTicking()
+      this.tickClock()
+    }.bind(this))
   },
 
   gotoDone: function () {
     if (!this.checkLineup()) return
-    this.setData({ stage: STAGE_DONE }, function () { this.refreshMvp() }.bind(this))
+    this.setData({ stage: STAGE_DONE }, function () {
+      this.refreshMvp()
+      // 进了结束阶段就不再需要秒级刷新，把计时器停掉省电
+      this.stopTicking()
+      this.tickClock()
+    }.bind(this))
   },
 
   backToLineup: function () {
@@ -396,6 +528,10 @@ Page({
     // refreshPending 已经保证得分队员还在场上；这里再兜一次，避免状态被绕过后记下无效的一分
     if (!scorer) return
     const assist = d.pendingAssist ? findIn(lineup, d.pendingAssist) : null
+    // 记下这一刻：相对开表的秒数。没开表就是 null（事后补记的比赛没有时间轴）
+    const t = d.startedAt > 0
+      ? Math.max(0, Math.floor((Date.now() - d.startedAt) / 1000))
+      : null
     const points = d.points.concat([{
       key: 'p' + (this._ptSeq++),
       team: d.pendingTeam,
@@ -403,6 +539,8 @@ Page({
       scorerName: scorer ? scorer.name : '',
       assist: assist ? assist._id : '',
       assistName: assist ? assist.name : '',
+      t: t,
+      timeText: t === null ? '' : mr.formatClock(t),
     }])
     this.setData({
       points: points,
@@ -412,18 +550,20 @@ Page({
       this.refreshScore()
       this.refreshMvp()
       this.refreshPending()
+      this.tickClock()
       this.autoSave()
     }.bind(this))
   },
 
   /** 撤销某一分。记错了马上能改，不用整场重录。 */
-  removePoint: function (e) {
+    removePoint: function (e) {
     const i = Number(e.currentTarget.dataset.index)
     const points = this.data.points.slice()
     points.splice(i, 1)
     this.setData({ points: points }, function () {
       this.refreshScore()
       this.refreshMvp()
+      this.tickClock()
       this.autoSave()
     }.bind(this))
   },
@@ -435,6 +575,7 @@ Page({
     this.setData({ points: points }, function () {
       this.refreshScore()
       this.refreshMvp()
+      this.tickClock()
       this.autoSave()
     }.bind(this))
   },
@@ -624,6 +765,9 @@ Page({
           return
         }
         that._saved = true
+        // 定格时间轴：之后再看这场比赛，用时就是打完那一刻
+        that.setData({ endedAt: Date.now() })
+        that.tickClock()
         wx.showToast({ title: '比赛已结束', icon: 'success' })
         setTimeout(function () { wx.navigateBack() }, 700)
       })
@@ -646,13 +790,20 @@ Page({
       scoreA: d.scoreA,
       scoreB: d.scoreB,
       points: d.points.map(function (p) {
-        return { team: p.team, scorer: p.scorer, assist: p.assist || null }
+        return {
+          team: p.team,
+          scorer: p.scorer,
+          assist: p.assist || null,
+          // 相对开表的秒数；没开表就带 null，服务端按"没有时间轴"存
+          t: p.t === null || p.t === undefined ? null : p.t,
+        }
       }),
       participantsA: idsOf(d.rosterA),
       participantsB: idsOf(d.rosterB),
       mvpIds: d.mvpIds,
       forfeitIds: d.forfeitIds,
       status: status,
+      notes: d.notes,
     }
   },
 
@@ -690,8 +841,15 @@ Page({
         { loading: false, toastError: false })
         .then(function (res) {
           const id = (res && res._id) || that.data.matchId
-          that.setData({ matchId: id, autoSaveText: '已自动保存', autoSaveFailed: false })
+          that.setData({
+            matchId: id,
+            // 服务端在第一次 live 保存时定开表时刻，客户端拿回来才能画出真实时间轴
+            startedAt: that.data.startedAt || (res && res.startedAt) || 0,
+            autoSaveText: '已自动保存',
+            autoSaveFailed: false,
+          })
           that._saved = true
+          that.startTicking()
         })
         .catch(function () {
           // 不弹 toast：现场正在记分，弹窗会挡住操作。改成可点的状态提示。

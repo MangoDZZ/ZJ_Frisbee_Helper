@@ -2795,6 +2795,178 @@ add('比赛记录摘要：群内可见活动对外人不给摘要', async functi
   eq(mine.list.length, 0)
 })
 
+// ================================================================ v1.1.4
+// 赛前配置（目标分 / 时限 / 中场）、开表与得分时刻、每场备注
+
+add('比赛规则：默认值随 listMatches 返回，组织者可以改', async function () {
+  const ctx = await setupTournament([2, 2])
+
+  let d = await expectOk(as(OWNER, hatMatch, 'listMatches', { tournamentId: ctx.tournamentId }))
+  eq(d.rules.targetScore, 13, '默认目标分 13')
+  eq(d.rules.halftimeMinutes, 30)
+  eq(d.rules.softCapMinutes, 60)
+  eq(d.rules.hardCapMinutes, null, '硬时限默认不设')
+  eq(d.rules.halftimeBreakMinutes, 3)
+
+  const saved = await expectOk(as(OWNER, hatMatch, 'setMatchRules', {
+    tournamentId: ctx.tournamentId,
+    rules: {
+      targetScore: 15, halftimeMinutes: 45, softCapMinutes: 75,
+      hardCapMinutes: 90, halftimeBreakMinutes: 5,
+    },
+  }))
+  eq(saved.rules.targetScore, 15)
+
+  d = await expectOk(as(OWNER, hatMatch, 'listMatches', { tournamentId: ctx.tournamentId }))
+  eq(d.rules.targetScore, 15)
+  eq(d.rules.hardCapMinutes, 90)
+})
+
+add('比赛规则：只有管理身份能改，越界与自相矛盾的配置被拒', async function () {
+  const ctx = await setupTournament([2, 2])
+
+  await expectErr(as('player-0', hatMatch, 'setMatchRules', {
+    tournamentId: ctx.tournamentId, rules: { targetScore: 15 },
+  }), 'FORBIDDEN', '参与者不能改规则')
+
+  await expectErr(as(OWNER, hatMatch, 'setMatchRules', {
+    tournamentId: ctx.tournamentId,
+    rules: { targetScore: 0, halftimeMinutes: 30, softCapMinutes: 60, halftimeBreakMinutes: 3 },
+  }), 'INVALID_INPUT', '目标分 0 不合法')
+
+  await expectErr(as(OWNER, hatMatch, 'setMatchRules', {
+    tournamentId: ctx.tournamentId,
+    rules: { targetScore: 13, halftimeMinutes: 90, softCapMinutes: 60, halftimeBreakMinutes: 3 },
+  }), 'INVALID_INPUT', '中场晚于软时限')
+
+  await expectErr(as(OWNER, hatMatch, 'setMatchRules', {
+    tournamentId: ctx.tournamentId,
+    rules: {
+      targetScore: 13, halftimeMinutes: 30, softCapMinutes: 60,
+      hardCapMinutes: 30, halftimeBreakMinutes: 3,
+    },
+  }), 'INVALID_INPUT', '硬时限早于软时限')
+})
+
+add('开表：第一次以「比赛中」保存时定 startedAt，之后不再变', async function () {
+  const ctx = await setupTournament([2, 2])
+
+  const first = await expectOk(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+    scoreA: 0, scoreB: 0, participantsA: ctx.teams[0].memberIds,
+    participantsB: ctx.teams[1].memberIds, status: 'live',
+  })), '0:0 的 live 记录应当能存（开表用）')
+  ok(first.startedAt > 0, '服务端要回传开表时刻')
+
+  const before = mock.get('matches', first._id).startedAt
+  eq(before, first.startedAt)
+
+  // 再存一次：开表时刻不能被重置
+  await expectOk(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+    matchId: first._id, scoreA: 1, scoreB: 0, status: 'live',
+    points: [{ team: 'A', scorer: ctx.teams[0].memberIds[0], assist: null, t: 5 }],
+  })))
+  eq(mock.get('matches', first._id).startedAt, before, '改记录不能重置开表时刻')
+})
+
+add('得分时刻：按相对秒数存，列表里能读回 t 与绝对时刻', async function () {
+  const ctx = await setupTournament([2, 2])
+  const a0 = ctx.teams[0].memberIds[0]
+
+  const saved = await expectOk(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+    status: 'live',
+    points: [
+      { team: 'A', scorer: a0, assist: null, t: 0 },
+      { team: 'A', scorer: a0, assist: null, t: 90 },
+      { team: 'B', scorer: ctx.teams[1].memberIds[0], assist: null, t: 150 },
+    ],
+  })))
+
+  const list = await expectOk(as(OWNER, hatMatch, 'listMatches', { tournamentId: ctx.tournamentId }))
+  const m = list.list.filter(function (x) { return x._id === saved._id })[0]
+  eq(JSON.stringify(m.points.map(function (p) { return p.t })), JSON.stringify([0, 90, 150]))
+  ok(m.startedAt > 0)
+  eq(m.points[1].at, m.startedAt + 90 * 1000, '绝对时刻 = 开表时刻 + 相对秒数')
+  eq(m.points[2].at - m.points[1].at, 60 * 1000, '两分之间正好 60 秒')
+})
+
+add('得分时刻：倒退的时刻与跑到未来的时刻都被拒', async function () {
+  const ctx = await setupTournament([2, 2])
+  const a0 = ctx.teams[0].memberIds[0]
+
+  await expectErr(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+    status: 'live',
+    points: [
+      { team: 'A', scorer: a0, assist: null, t: 100 },
+      { team: 'A', scorer: a0, assist: null, t: 50 },
+    ],
+  })), 'INVALID_POINT', '第 2 分的时刻比第 1 分还早')
+
+  await expectErr(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+    status: 'live',
+    points: [{ team: 'A', scorer: a0, assist: null, t: 99999 }],
+  })), 'INVALID_POINT', '时刻超出了已进行时长')
+})
+
+add('得分时刻：不带 t 的老比赛照常能存（事后补记没有时间轴）', async function () {
+  const ctx = await setupTournament([2, 2])
+  const saved = await expectOk(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+    status: 'live',
+    points: [
+      { team: 'A', scorer: ctx.teams[0].memberIds[0], assist: null },
+      { team: 'A', scorer: ctx.teams[0].memberIds[1], assist: null },
+    ],
+  })))
+  const list = await expectOk(as(OWNER, hatMatch, 'listMatches', { tournamentId: ctx.tournamentId }))
+  const m = list.list.filter(function (x) { return x._id === saved._id })[0]
+  eq(m.points[0].t, null, '没有 t 就是 null')
+  eq(m.points[0].at, 0)
+})
+
+add('每场备注：能存能读，结束比赛后留在记录上', async function () {
+  const ctx = await setupTournament([2, 2])
+  const saved = await expectOk(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+    status: 'live', notes: '因雨中断 10 分钟',
+  })))
+  eq(mock.get('matches', saved._id).notes, '因雨中断 10 分钟')
+
+  await expectOk(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+    matchId: saved._id, status: 'finished', notes: '因雨中断 10 分钟',
+  })))
+  const list = await expectOk(as(OWNER, hatMatch, 'listMatches', { tournamentId: ctx.tournamentId }))
+  const m = list.list.filter(function (x) { return x._id === saved._id })[0]
+  eq(m.notes, '因雨中断 10 分钟')
+  ok(m.endedAt > 0, '结束时刻要记下来，时间轴才能定格')
+})
+
+add('备注超长被截断，不会把文档撑爆', async function () {
+  const ctx = await setupTournament([2, 2])
+  const long = new Array(400).join('啊')
+  const saved = await expectOk(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+    status: 'live', notes: long,
+  })))
+  eq(mock.get('matches', saved._id).notes.length, 200)
+})
+
+add('规则快照：改赛事规则不会倒改已经录好的比赛', async function () {
+  const ctx = await setupTournament([2, 2])
+  const saved = await expectOk(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+    status: 'live', scoreA: 3, scoreB: 1,
+  })))
+  eq(mock.get('matches', saved._id).matchRules.targetScore, 13, '建比赛时快照了当时的规则')
+
+  await expectOk(as(OWNER, hatMatch, 'setMatchRules', {
+    tournamentId: ctx.tournamentId,
+    rules: { targetScore: 15, halftimeMinutes: 30, softCapMinutes: 60, halftimeBreakMinutes: 3 },
+  }))
+  eq(mock.get('matches', saved._id).matchRules.targetScore, 13, '历史比赛不受影响')
+
+  const next = await expectOk(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {
+    status: 'live', scoreA: 1, scoreB: 0,
+    participantsA: ctx.teams[0].memberIds, participantsB: ctx.teams[1].memberIds,
+  })))
+  eq(mock.get('matches', next._id).matchRules.targetScore, 15, '新比赛用新规则')
+})
+
 add('端到端：用测试数据完成一次分队', async function () {
   const id = await createEvent({ capacity: 24, teamCount: 4 })
   await expectOk(as(ADMIN, hatSignup, 'seedTestSignups', { eventId: id, count: 24 }))

@@ -18,6 +18,7 @@ const common = require('./lib/common.js')
 const score = require('./lib/score.js')
 const roles = require('./lib/roles.js')
 const store = require('./lib/store.js')
+const matchRules = require('./lib/match-rules.js')
 
 const db = cloud.database()
 const divisions = db.collection('divisions')
@@ -37,6 +38,22 @@ const removeWhere = common.removeWhere
 
 const MAX_MVP = 2
 const MAX_MATCHES = 200
+const MAX_NOTES = 200
+
+/**
+ * 补记时间戳的容差（秒）。设备时钟与服务器时钟有几十秒偏差很正常，
+ * 离线记了几分钟再一起提交也很正常，所以上界放宽 60 秒；下界与"递增"是硬规则。
+ */
+const CLOCK_SLACK_SEC = 60
+
+/**
+ * 单分"比赛用时"的上限（秒）。6 小时，远大于任何真实比赛。
+ *
+ * 必须有这个上限：新比赛的开表时刻是**从最后一分倒推**出来的（这样离线记的
+ * 分钟数不会丢），所以不设上限的话客户端传 t=99999 服务端也会照着倒推，
+ * 时间轴就变成了天文数字。
+ */
+const MAX_POINT_SEC = 6 * 3600
 
 /** 随机事件：池子上限、单次说明长度、效果绝对值上限、一次最多返回多少条触发记录 */
 const MAX_RANDOM_EVENTS = 100
@@ -177,7 +194,26 @@ function validateMatch (d, division, allowDraw) {
         }
       }
 
-      points.push({ team: team, scorer: scorer, assist: assist })
+      // 得分时刻：**相对开表的秒数**，不是绝对时间。设备时钟可能差好几分钟，
+      // 用相对秒数就不受这个影响；没开表的比赛（事后补记）不带 t。
+      let t = null
+      if (p.t !== null && p.t !== undefined && p.t !== '') {
+        t = asInt(p.t)
+        if (t === null || t < 0) {
+          return {
+            error: err('INVALID_POINT', '第 ' + (i + 1) + ' 分的比赛用时不对', { t: p.t }),
+          }
+        }
+        if (t > MAX_POINT_SEC) {
+          return {
+            error: err('INVALID_POINT',
+              '第 ' + (i + 1) + ' 分的比赛用时超过了 ' + (MAX_POINT_SEC / 3600) + ' 小时',
+              { t: t }),
+          }
+        }
+      }
+
+      points.push({ team: team, scorer: scorer, assist: assist, t: t })
     }
     scoreA = points.filter(function (p) { return p.team === 'A' }).length
     scoreB = points.filter(function (p) { return p.team === 'B' }).length
@@ -359,6 +395,7 @@ function decorateMatch (m, division, byId) {
   }
   const teamA = teams[m.teamAIndex] || { name: '已失效的队' }
   const teamB = teams[m.teamBIndex] || { name: '已失效的队' }
+  const startedAt = m.startedAt || 0
   return {
     _id: m._id,
     teamAIndex: m.teamAIndex,
@@ -369,11 +406,19 @@ function decorateMatch (m, division, byId) {
     scoreB: m.scoreB,
     status: matchStatus(m.status),
     hasPoints: score.hasPoints(m),
+    // 开表/结束时刻给时间轴用；老比赛没有这两个字段，前端按"没有时间轴"处理
+    startedAt: startedAt,
+    endedAt: m.endedAt || 0,
+    notes: m.notes || '',
     points: (m.points || []).map(function (p) {
+      const t = typeof p.t === 'number' ? p.t : null
       return {
         team: p.team,
         scorer: nameOf(p.scorer),
         assist: p.assist ? nameOf(p.assist) : null,
+        // 得分时刻：t 是相对开表的秒数（时间轴按它画），at 是绝对毫秒（页面上显示）
+        t: t,
+        at: t !== null && startedAt ? startedAt + t * 1000 : 0,
       }
     }),
     winner: score.winnerOf(m),
@@ -416,25 +461,68 @@ const actions = {
     const v = validateMatch(d, division, status === 'live')
     if (v.error) return v.error
 
-    const patch = Object.assign({}, v.value, { status: status })
-
     const matchId = trimStr(d.matchId)
     const now = Date.now()
 
+    // 已有记录：读出原来的开表时刻，改记录时不能重置它（否则时间轴会被清零）
+    let existing = null
     if (matchId) {
-      const target = await matches.doc(matchId).get().catch(function () { return null })
-      if (!target || !target.data) return err('NOT_FOUND', '比赛记录不存在')
-      if (target.data.tournamentId !== tour._id) {
+      existing = await matches.doc(matchId).get().catch(function () { return null })
+      if (!existing || !existing.data) return err('NOT_FOUND', '比赛记录不存在')
+      if (existing.data.tournamentId !== tour._id) {
         return err('FORBIDDEN', '该比赛记录不属于这场赛事')
       }
+    }
+
+    const prevStart = existing && existing.data.startedAt ? existing.data.startedAt : 0
+    // 开表时刻：第一次以"比赛中"保存时确定。
+    // 用最后一分的用时往回倒推，这样离线记了几分钟再一起提交，时间轴也是从真实开球算起。
+    let startedAt = prevStart
+    if (!startedAt) {
+      let lastT = 0
+      for (let i = 0; i < v.value.points.length; i++) {
+        if (v.value.points[i].t !== null) lastT = v.value.points[i].t
+      }
+      startedAt = lastT > 0 ? now - lastT * 1000 : now
+    }
+
+    // 得分时刻校验：必须非递减，且不能跑到"现在"之后太远。
+    // 这一项只能在知道 startedAt 之后做，所以不能放在 validateMatch 里。
+    const elapsed = Math.floor((now - startedAt) / 1000)
+    const upper = elapsed + CLOCK_SLACK_SEC
+    let prevT = -1
+    for (let i = 0; i < v.value.points.length; i++) {
+      const p = v.value.points[i]
+      if (p.t === null) continue
+      if (p.t < prevT) {
+        return err('INVALID_POINT', '第 ' + (i + 1) + ' 分的时刻比上一分还早', { t: p.t })
+      }
+      if (p.t > upper) {
+        return err('INVALID_POINT',
+          '第 ' + (i + 1) + ' 分的时刻超出了比赛已进行的时长', { t: p.t, elapsed: elapsed })
+      }
+      prevT = p.t
+    }
+
+    const patch = Object.assign({}, v.value, {
+      status: status,
+      startedAt: startedAt,
+      // 备注每场单独填，显示在比赛记录界面上
+      notes: trimStr(d.notes).slice(0, MAX_NOTES),
+    })
+    // 结束时记一笔结束时刻，时间轴上就能画出"第几分钟结束的"
+    patch.endedAt = status === 'finished' ? now : null
+
+    if (matchId) {
+      // 结束时没传备注就当清空；比赛中的自动暂存会把当前值原样带上，不会误清。
       await matches.doc(matchId).update({
         data: Object.assign({}, patch, { updateTime: now }),
       })
-      return ok({ _id: matchId, updated: true, status: status })
+      return ok({ _id: matchId, updated: true, status: status, startedAt: startedAt })
     }
 
-    const existing = await matches.where({ tournamentId: tour._id }).count()
-    if (existing.total >= MAX_MATCHES) {
+    const count = await matches.where({ tournamentId: tour._id }).count()
+    if (count.total >= MAX_MATCHES) {
       return err('TOO_MANY', '一场赛事最多记录 ' + MAX_MATCHES + ' 场比赛')
     }
 
@@ -444,12 +532,37 @@ const actions = {
         // 冗余存一份 eventId，汇总积分榜要按活动一次查出所有比赛。
         eventId: tour.eventId,
         divisionId: division._id,
+        // 规则快照：组织者之后改了赛事规则，已经打完的比赛仍按当时的规则解释。
+        matchRules: matchRules.normalizeRules(tour.matchRules),
         createTime: now,
         updateTime: now,
         createdBy: r.openid,
       }),
     })
-    return ok({ _id: res._id, updated: false, status: status })
+    return ok({ _id: res._id, updated: false, status: status, startedAt: startedAt })
+  },
+
+  /**
+   * 保存赛事的比赛规则（目标分 / 软时限 / 硬时限 / 中场）。
+   *
+   * 存在赛事级：一套规则对这场赛事的每场都适用，不用每开一场重设一遍。
+   * 已经打完的比赛读的是自己的 matchRules 快照，所以改规则不会倒改历史。
+   */
+  async setMatchRules (d, r) {
+    const t = await store.loadTournament(db, d.tournamentId)
+    if (t.error) return t.error
+    const forbidden = requireManage(t.value.evt, r)
+    if (forbidden) return forbidden
+
+    const v = matchRules.validateRules(d.rules)
+    if (v.error) {
+      return err(v.error.code, v.error.message, v.error.detail)
+    }
+
+    await tournaments.doc(t.value.tournament._id).update({
+      data: { matchRules: v.value, updateTime: Date.now() },
+    })
+    return ok({ rules: v.value })
   },
 
   async removeMatch (d, r) {
@@ -501,6 +614,8 @@ const actions = {
       canScore: canScore,
       tournamentName: tour.name,
       eventId: tour.eventId,
+      // 赛事级规则：记分页要靠它画时间轴、判断能不能结束
+      rules: matchRules.normalizeRules(tour.matchRules),
       list: list,
       teams: (dv.value.teams || []).map(function (x) {
         return { index: x.index, name: x.name, memberIds: x.memberIds }

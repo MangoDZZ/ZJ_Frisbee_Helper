@@ -62,3 +62,45 @@
   font-size: 24rpx;
   padding: 0 8rpx;
 }
+
+/* ---------- 赛前配置 ---------- */
+/* 一行一个，label 定宽、输入框定宽，窄屏也不会挤成两行 */
+.rule-grid {
+  margin-top: 12rpx;
+}
+.rule-item {
+  display: flex;
+  align-items: center;
+  padding: 10rpx 0;
+}
+.rule-cap {
+  width: 176rpx;
+  flex: none;
+  font-size: 26rpx;
+  color: #374151;
+}
+.rule-input {
+  width: 150rpx;
+  flex: none;
+  padding: 8rpx 12rpx;
+  font-size: 26rpx;
+  text-align: center;
+  background: #f7f8fa;
+  border-radius: 8rpx;
+}
+.rule-unit {
+  margin-left: 12rpx;
+  font-size: 24rpx;
+  color: #8a9099;
+}
+
+/* 每场比赛的备注 */
+.notes-line {
+  margin-top: 10rpx;
+  padding: 10rpx 14rpx;
+  font-size: 24rpx;
+  color: #6b7280;
+  background: #f7f8fa;
+  border-radius: 8rpx;
+  white-space: pre-wrap;
+}

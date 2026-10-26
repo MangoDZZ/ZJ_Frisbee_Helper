@@ -3,6 +3,61 @@
   <view wx:if="{{loading}}" class="empty">加载中…</view>
 
   <block wx:elif="{{!failMessage}}">
+    <!-- 赛前配置：目标分与各种时限。赛事级，对之后录的每场比赛生效 -->
+    <view class="card">
+      <view class="row-between">
+        <text class="card-title">比赛规则</text>
+        <text wx:if="{{isOwner && !rulesEditing}}" class="muted small"
+              bindtap="editRules">赛前配置</text>
+        <text wx:elif="{{rulesEditing}}" class="muted small" bindtap="cancelRules">取消</text>
+      </view>
+
+      <view wx:if="{{!rulesEditing}}" class="field-hint">{{rulesText}}</view>
+
+      <block wx:else>
+        <view class="rule-grid">
+          <view class="rule-item">
+            <text class="rule-cap">初始目标分</text>
+            <input class="rule-input" type="number" value="{{rulesForm.targetScore}}"
+                   data-field="targetScore" bindinput="onRuleInput" maxlength="2" />
+            <text class="rule-unit">分</text>
+          </view>
+          <view class="rule-item">
+            <text class="rule-cap">中场时刻</text>
+            <input class="rule-input" type="number" value="{{rulesForm.halftimeMinutes}}"
+                   data-field="halftimeMinutes" bindinput="onRuleInput" maxlength="3" />
+            <text class="rule-unit">分</text>
+          </view>
+          <view class="rule-item">
+            <text class="rule-cap">软时限</text>
+            <input class="rule-input" type="number" value="{{rulesForm.softCapMinutes}}"
+                   data-field="softCapMinutes" bindinput="onRuleInput" maxlength="3" />
+            <text class="rule-unit">分</text>
+          </view>
+          <view class="rule-item">
+            <text class="rule-cap">硬时限</text>
+            <input class="rule-input" type="number" value="{{rulesForm.hardCapMinutes}}"
+                   data-field="hardCapMinutes" bindinput="onRuleInput" maxlength="3"
+                   placeholder="不设" />
+            <text class="rule-unit">分</text>
+          </view>
+          <view class="rule-item">
+            <text class="rule-cap">中场休息</text>
+            <input class="rule-input" type="number" value="{{rulesForm.halftimeBreakMinutes}}"
+                   data-field="halftimeBreakMinutes" bindinput="onRuleInput" maxlength="2" />
+            <text class="rule-unit">分</text>
+          </view>
+        </view>
+        <view class="field-hint">
+          任一队到目标分即结束。到了软时限后的下一次得分，场上领先方 +1 成为新目标分。
+          硬时限到点必须结束（与比分无关），留空则不设。中场取「中场时刻」与
+          「某队到目标分一半」两者中较早的那个，只是提示，不停表。
+        </view>
+        <button class="btn btn-plain btn-sm gap" bindtap="saveRules"
+                disabled="{{savingRules}}">保存规则</button>
+      </block>
+    </view>
+
     <!-- 队伍战绩 -->
     <view wx:if="{{list.length > 0}}" class="card">
       <view class="row-between">
@@ -35,6 +90,9 @@
       </view>
 
       <view class="card-meta center">{{item.countText}}</view>
+      <view wx:if="{{item.clockText}}" class="card-meta center">{{item.clockText}}</view>
+      <!-- 每场比赛的备注：记分员写在记分页，这里直接显示 -->
+      <view wx:if="{{item.notes}}" class="notes-line">{{item.notes}}</view>
       <view wx:if="{{item.mvpText}}" class="mvp-line">
         <text class="tag tag-mvp">本场 MVP</text>
         <text>{{item.mvpText}}</text>
