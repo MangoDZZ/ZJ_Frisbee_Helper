@@ -113,26 +113,25 @@
 }
 .pt-row { border-bottom: 2rpx solid #f4f5f7; }
 .pt-row:last-child { border-bottom: none; }
-.pt-sec {
-  flex: none;
-  width: 56rpx;
-  color: #8a9099;
-}
-/* 得分时刻：定宽且用等宽数字，扫一眼就能看出节奏 */
-.pt-time {
-  flex: none;
-  width: 96rpx;
-  color: #8a9099;
-  font-size: 24rpx;
-  font-variant-numeric: tabular-nums;
-}
+/*
+ * 列宽：队伍名几乎总是「1队」这类两字，定宽即可；得分/助攻是真名（还常带「测试」前缀），
+ * 让它们平分剩下的宽度。都留 ellipsis 兜住组织者自定义的长队名。
+ */
 .pt-team {
-  flex: 1;
-  min-width: 0;
+  flex: none;
+  width: 104rpx;
   color: #4b5563;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+/* 时刻：定宽 + 等宽数字，扫一眼就能看出节奏。1:03:02 也要放得下 */
+.pt-time {
+  flex: none;
+  width: 112rpx;
+  color: #8a9099;
+  font-size: 24rpx;
+  font-variant-numeric: tabular-nums;
 }
 .pt-name {
   flex: 1;

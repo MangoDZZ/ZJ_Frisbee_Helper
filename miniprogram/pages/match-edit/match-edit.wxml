@@ -175,18 +175,16 @@
         </view>
 
         <view wx:if="{{points.length > 0}}" class="pt-head">
-          <text class="pt-seq">#</text>
-          <text class="pt-time">用时</text>
           <text class="pt-team">队伍</text>
+          <text class="pt-time">时刻</text>
           <text class="pt-name">得分</text>
           <text class="pt-name">助攻</text>
           <text class="pt-del"></text>
         </view>
 
         <view wx:for="{{points}}" wx:key="key" class="pt-row">
-          <text class="pt-seq">{{index + 1}}</text>
-          <text class="pt-time">{{item.timeText || '—'}}</text>
           <text class="pt-team">{{item.team === 'A' ? teamAName : teamBName}}</text>
+          <text class="pt-time">{{item.timeText || '—'}}</text>
           <text class="pt-name">{{item.scorerName}}</text>
           <text class="pt-name muted">{{item.assistName ? item.assistName : '—'}}</text>
           <text class="pt-del" data-index="{{index}}" catchtap="removePoint">删除</text>
