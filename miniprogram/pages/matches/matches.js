@@ -76,9 +76,9 @@ Page({
       rulesEditing: true,
       rulesForm: {
         targetScore: String(r.targetScore),
-        halftimeMinutes: String(r.halftimeMinutes),
+        // 两个选填项：空串就是"不设"
+        halftimeMinutes: r.halftimeMinutes === null ? '' : String(r.halftimeMinutes),
         softCapMinutes: String(r.softCapMinutes),
-        // 硬时限是选填，空串就是"不设"
         hardCapMinutes: r.hardCapMinutes === null ? '' : String(r.hardCapMinutes),
         halftimeBreakMinutes: String(r.halftimeBreakMinutes),
       },
@@ -161,7 +161,7 @@ Page({
 function rulesSummary (r) {
   const parts = [
     '目标分 ' + r.targetScore,
-    '中场 ' + r.halftimeMinutes + '分',
+    r.halftimeMinutes === null ? '无时间中场' : '时间中场 ' + r.halftimeMinutes + '分',
     '软时限 ' + r.softCapMinutes + '分',
     r.hardCapMinutes === null ? '无硬时限' : '硬时限 ' + r.hardCapMinutes + '分',
     '休息 ' + r.halftimeBreakMinutes + '分',

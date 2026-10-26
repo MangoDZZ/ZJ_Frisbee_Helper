@@ -257,7 +257,7 @@ Page({
     if (st.halfReached) {
       phase = st.inBreak
         ? '中场休息'
-        : (st.halfReason === 'score' ? '上半场已过半' : '已过中场时刻')
+        : (st.halfReason === 'score' ? '上半场已过半' : '已到时间中场')
     }
     this.setData({
       clockText: mr.formatClock(st.elapsedSec),

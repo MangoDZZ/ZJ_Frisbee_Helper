@@ -2822,6 +2822,57 @@ add('比赛规则：默认值随 listMatches 返回，组织者可以改', async
   eq(d.rules.hardCapMinutes, 90)
 })
 
+add('比赛规则：时间中场可以留空，留空即只按分数判定', async function () {
+  const ctx = await setupTournament([2, 2])
+
+  // 留空（null / 空串 / 0）都能存，存下来是 null
+  const saved = await expectOk(as(OWNER, hatMatch, 'setMatchRules', {
+    tournamentId: ctx.tournamentId,
+    rules: {
+      targetScore: 13, halftimeMinutes: '', softCapMinutes: 60,
+      hardCapMinutes: null, halftimeBreakMinutes: 3,
+    },
+  }))
+  eq(saved.rules.halftimeMinutes, null, '空串存成 null')
+
+  const d = await expectOk(as(OWNER, hatMatch, 'listMatches', { tournamentId: ctx.tournamentId }))
+  eq(d.rules.halftimeMinutes, null, '读出来仍然是"不设"，不会被默认值填回 30')
+
+  // 硬时限同理，两个可选项互不影响
+  eq(d.rules.hardCapMinutes, null)
+  eq(d.rules.targetScore, 13)
+})
+
+add('比赛规则：时间中场留空时不校验"不能晚于软时限"', async function () {
+  const ctx = await setupTournament([2, 2])
+
+  // 填了就要守规矩：超出范围 → 报错
+  await expectErr(as(OWNER, hatMatch, 'setMatchRules', {
+    tournamentId: ctx.tournamentId,
+    rules: {
+      targetScore: 13, halftimeMinutes: 999, softCapMinutes: 60, halftimeBreakMinutes: 3,
+    },
+  }), 'INVALID_INPUT', '时间中场 999 超范围')
+
+  // 留空就没有先后关系可违反
+  await expectOk(as(OWNER, hatMatch, 'setMatchRules', {
+    tournamentId: ctx.tournamentId,
+    rules: {
+      targetScore: 13, halftimeMinutes: null, softCapMinutes: 60, halftimeBreakMinutes: 3,
+    },
+  }))
+})
+
+add('比赛规则：老赛事没有时间中场字段时拿默认 30', async function () {
+  const ctx = await setupTournament([2, 2])
+  // 模拟老数据：字段根本不存在
+  mock.update('tournaments', ctx.tournamentId, { matchRules: { targetScore: 15 } })
+  const d = await expectOk(as(OWNER, hatMatch, 'listMatches', { tournamentId: ctx.tournamentId }))
+  eq(d.rules.targetScore, 15, '存了的字段用自己的')
+  eq(d.rules.halftimeMinutes, 30, '缺的字段用默认值')
+  eq(d.rules.softCapMinutes, 60)
+})
+
 add('比赛规则：只有管理身份能改，越界与自相矛盾的配置被拒', async function () {
   const ctx = await setupTournament([2, 2])
 

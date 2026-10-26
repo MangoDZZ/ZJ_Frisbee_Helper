@@ -7,15 +7,16 @@
  *  - `miniprogram/utils/match-rules.js` —— 客户端算时间轴、渲染提示
  *
  * 两个副本都是生成物，**不要直接改**。之所以能共用一份：本文件是纯 JS，
- * 既不用 wx API 也不用 Node API，两边都能跑。这样"目标分 13、中场 30 分钟"
+ * 既不用 wx API 也不用 Node API，两边都能跑。这样"目标分 13、时间中场 30 分钟"
  * 这些常量只有一处，不会出现"组织者改成 15、记分页还按 13 提示可以结束"。
  *
  * 规则来自 plan.md v1.1.4：
  *  - 初始目标分：任一队到达即比赛结束（默认 13）
- *  - 中场时刻：时间分支与分数分支取**较早**者（时间分支默认 30min，
- *    分数分支为任一队达到 ceil(目标分/2)）
  *  - 软时限：到点之后的**下一次得分完成时**，场上分数较高者 +1 成为新目标分（默认 60min）
  *  - 硬时限（可选）：到点即必须结束，与比分无关
+ *  - 时间中场（可选）：中场条件的**时间分支**（默认 30min）
+ *  - 中场条件：时间中场与「任一队达到 ceil(目标分/2)」取**较早**者；
+ *    时间中场不设时只看分数分支
  *  - 中场休息时长：只是个提示用的倒计时，**不停表**
  */
 
@@ -26,6 +27,13 @@ const DEFAULT_RULES = {
   hardCapMinutes: null,
   halftimeBreakMinutes: 3,
 }
+
+/**
+ * 可留空的项。0 / '' / null / 缺省之外的"不设"都归一到 null。
+ * 注意「缺省」与「显式不设」是两回事：老数据没有这个字段要拿到默认值，
+ * 而组织者主动清空要真的变成"不设"。见 normalizeRules。
+ */
+const OPTIONAL_KEYS = ['halftimeMinutes', 'hardCapMinutes']
 
 const LIMITS = {
   targetScore: { min: 1, max: 99 },
@@ -49,12 +57,21 @@ function clamp (n, lim) {
   return n
 }
 
+/** 表单里表示"不设"的各种写法：空串、null、0。 */
+function isEmptyValue (v) {
+  return v === null || v === undefined || v === '' || v === 0
+}
+
 /**
  * 把任意输入规整成完整规则：缺字段用默认值，越界截断。
  *
  * 越界**截断**而不是报错，是给"读"这条路径用的：老赛事没有 matchRules，
  * 或者数据被人手改过，页面仍然要能画出合理的规则和时间轴。
  * 保存走 validateRules，那里越界会明确报错。
+ *
+ * 可选字段的两种"空"要区分开：
+ *  - **字段不存在** → 用默认值（老赛事没有 halftimeMinutes，应当拿到 30）
+ *  - **字段存在但为空**（null/''/0）→ 就是不设（组织者主动清空过）
  */
 function normalizeRules (raw) {
   const src = raw && typeof raw === 'object' ? raw : {}
@@ -64,20 +81,26 @@ function normalizeRules (raw) {
   out.targetScore = target === null ? DEFAULT_RULES.targetScore
     : clamp(target, LIMITS.targetScore)
 
-  const half = intOf(src.halftimeMinutes)
-  out.halftimeMinutes = half === null ? DEFAULT_RULES.halftimeMinutes
-    : clamp(half, LIMITS.halftimeMinutes)
-
   const soft = intOf(src.softCapMinutes)
   out.softCapMinutes = soft === null ? DEFAULT_RULES.softCapMinutes
     : clamp(soft, LIMITS.softCapMinutes)
 
-  const hard = intOf(src.hardCapMinutes)
-  out.hardCapMinutes = hard === null ? null : clamp(hard, LIMITS.hardCapMinutes)
-
   const brk = intOf(src.halftimeBreakMinutes)
   out.halftimeBreakMinutes = brk === null ? DEFAULT_RULES.halftimeBreakMinutes
     : clamp(brk, LIMITS.halftimeBreakMinutes)
+
+  OPTIONAL_KEYS.forEach(function (key) {
+    if (src[key] === undefined) {
+      out[key] = DEFAULT_RULES[key]
+      return
+    }
+    if (isEmptyValue(src[key])) {
+      out[key] = null
+      return
+    }
+    const n = intOf(src[key])
+    out[key] = n === null ? null : clamp(n, LIMITS[key])
+  })
 
   return out
 }
@@ -90,10 +113,10 @@ function validateRules (raw) {
   const src = raw && typeof raw === 'object' ? raw : {}
   const out = {}
 
-  const fields = ['targetScore', 'halftimeMinutes', 'softCapMinutes', 'halftimeBreakMinutes']
+  const fields = ['targetScore', 'softCapMinutes', 'halftimeBreakMinutes']
   const labels = {
     targetScore: '初始目标分',
-    halftimeMinutes: '中场时刻',
+    halftimeMinutes: '时间中场',
     softCapMinutes: '软时限',
     halftimeBreakMinutes: '中场休息时长',
   }
@@ -115,27 +138,28 @@ function validateRules (raw) {
     out[key] = n
   }
 
-  // 硬时限选填：空 / null / 0 都表示不设
-  const rawHard = src.hardCapMinutes
-  const emptyHard = rawHard === null || rawHard === undefined || rawHard === '' || rawHard === 0
-  if (emptyHard) {
-    out.hardCapMinutes = null
-  } else {
-    const hard = intOf(rawHard)
-    if (hard === null || hard < LIMITS.hardCapMinutes.min || hard > LIMITS.hardCapMinutes.max) {
+  // 两个可选项：空 / null / 0 都表示不设
+  for (let i = 0; i < OPTIONAL_KEYS.length; i++) {
+    const key = OPTIONAL_KEYS[i]
+    if (isEmptyValue(src[key])) {
+      out[key] = null
+      continue
+    }
+    const lim = LIMITS[key]
+    const n = intOf(src[key])
+    if (n === null || n < lim.min || n > lim.max) {
       return {
         error: {
           code: 'INVALID_INPUT',
-          message: '硬时限需要是 ' + LIMITS.hardCapMinutes.min + ' 到 ' +
-            LIMITS.hardCapMinutes.max + ' 之间的整数，或者留空',
+          message: labels[key] + '需要是 ' + lim.min + ' 到 ' + lim.max + ' 之间的整数，或者留空',
         },
       }
     }
-    out.hardCapMinutes = hard
+    out[key] = n
   }
 
-  if (out.halftimeMinutes > out.softCapMinutes) {
-    return { error: { code: 'INVALID_INPUT', message: '中场时刻不能晚于软时限' } }
+  if (out.halftimeMinutes !== null && out.halftimeMinutes > out.softCapMinutes) {
+    return { error: { code: 'INVALID_INPUT', message: '时间中场不能晚于软时限' } }
   }
   if (out.hardCapMinutes !== null && out.hardCapMinutes <= out.softCapMinutes) {
     return { error: { code: 'INVALID_INPUT', message: '硬时限必须晚于软时限' } }
@@ -203,16 +227,17 @@ function clockState (rules, startedAt, points, now) {
 
   const target = raisedTarget === null ? baseTarget : Math.max(baseTarget, raisedTarget)
 
-  // 中场时刻：时间分支与分数分支取较早者。
+  // 中场条件：时间中场与分数分支取较早者。时间中场不设时只看分数分支；
   // 时间分支只要"到点"就算，不必等某一次得分——否则一直不得分就永远不到中场。
-  const halfByTimeSec = r.halftimeMinutes * 60
+  const halfByTimeSec = r.halftimeMinutes === null ? null : r.halftimeMinutes * 60
   let halfAtSec = null
   let halfReason = ''
   if (halfByScoreSec !== null) {
     halfAtSec = halfByScoreSec
     halfReason = 'score'
   }
-  if (elapsedSec >= halfByTimeSec && (halfAtSec === null || halfByTimeSec < halfAtSec)) {
+  if (halfByTimeSec !== null && elapsedSec >= halfByTimeSec &&
+      (halfAtSec === null || halfByTimeSec < halfAtSec)) {
     halfAtSec = halfByTimeSec
     halfReason = 'time'
   }

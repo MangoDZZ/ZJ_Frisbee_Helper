@@ -23,9 +23,10 @@
             <text class="rule-unit">分</text>
           </view>
           <view class="rule-item">
-            <text class="rule-cap">中场时刻</text>
+            <text class="rule-cap">时间中场</text>
             <input class="rule-input" type="number" value="{{rulesForm.halftimeMinutes}}"
-                   data-field="halftimeMinutes" bindinput="onRuleInput" maxlength="3" />
+                   data-field="halftimeMinutes" bindinput="onRuleInput" maxlength="3"
+                   placeholder="不设" />
             <text class="rule-unit">分</text>
           </view>
           <view class="rule-item">
@@ -50,8 +51,9 @@
         </view>
         <view class="field-hint">
           任一队到目标分即结束。到了软时限后的下一次得分，场上领先方 +1 成为新目标分。
-          硬时限到点必须结束（与比分无关），留空则不设。中场取「中场时刻」与
-          「某队到目标分一半」两者中较早的那个，只是提示，不停表。
+          硬时限到点必须结束（与比分无关），留空则不设。中场取「时间中场」与
+          「某队到目标分一半」两者中较早的那个；时间中场留空就只按分数判定。
+          中场只是提示，不停表。
         </view>
         <button class="btn btn-plain btn-sm gap" bindtap="saveRules"
                 disabled="{{savingRules}}">保存规则</button>

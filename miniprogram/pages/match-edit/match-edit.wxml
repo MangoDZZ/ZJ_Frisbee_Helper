@@ -115,7 +115,7 @@
         <view wx:if="{{startedAt === 0}}" class="card">
           <view class="card-title">还没开始计时</view>
           <view class="field-hint">
-            开表后才会记录时间轴和中场时刻。也可以不开表直接记分，那样只有比分和逐分明细。
+            开表后才会记录时间轴和中场提示。也可以不开表直接记分，那样只有比分和逐分明细。
           </view>
           <button class="btn btn-plain gap" bindtap="startClock">开始计时</button>
         </view>

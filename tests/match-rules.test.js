@@ -6,7 +6,7 @@
  *   node tests/match-rules.test.js
  *
  * 重点盯住三处容易算错的地方：
- *  1. 中场时刻是"时间分支"与"分数分支"的**较早**者
+ *  1. 中场条件是"时间分支"与"分数分支"的**较早**者；时间中场可留空
  *  2. 软时限改目标分发生在**到点之后的下一次得分完成时**，不是到点那一刻
  *  3. 硬时限到点但平局时不能判定可结束（结束的比赛不允许平局）
  */
@@ -84,15 +84,47 @@ test('validateRules：合法配置原样通过', function () {
 test('validateRules：越界报错，不静默改数', function () {
   ok(mr.validateRules({ targetScore: 100, halftimeMinutes: 30, softCapMinutes: 60,
     halftimeBreakMinutes: 3 }).error, '目标分 100 超上限')
-  ok(mr.validateRules({ targetScore: 13, halftimeMinutes: 0, softCapMinutes: 60,
-    halftimeBreakMinutes: 3 }).error, '中场 0 不合法')
+  ok(mr.validateRules({ targetScore: 13, halftimeMinutes: -5, softCapMinutes: 60,
+    halftimeBreakMinutes: 3 }).error, '时间中场为负数不合法')
   ok(mr.validateRules({ targetScore: 13, halftimeMinutes: 30, softCapMinutes: 60,
     halftimeBreakMinutes: 31 }).error, '休息 31 分钟超上限')
   ok(mr.validateRules({ targetScore: 'x', halftimeMinutes: 30, softCapMinutes: 60,
     halftimeBreakMinutes: 3 }).error, '目标分不是数字')
 })
 
-test('validateRules：中场不能晚于软时限，硬时限必须晚于软时限', function () {
+test('时间中场是选填：空串 / null / 0 / 缺省都表示不设', function () {
+  ;['', null, 0, undefined].forEach(function (v) {
+    const input = {
+      targetScore: 13, softCapMinutes: 60, halftimeBreakMinutes: 3,
+    }
+    if (v !== undefined) input.halftimeMinutes = v
+    const r = mr.validateRules(input)
+    ok(r.value, '应当通过：' + JSON.stringify(v))
+    eq(r.value.halftimeMinutes, null, JSON.stringify(v) + ' 应存成 null')
+  })
+})
+
+test('时间中场不设时，不再校验"不能晚于软时限"', function () {
+  const r = mr.validateRules({
+    targetScore: 13, halftimeMinutes: null, softCapMinutes: 60, halftimeBreakMinutes: 3,
+  })
+  ok(r.value, '不设就没有先后关系可违反')
+})
+
+test('normalizeRules：字段缺失给默认值，显式清空才是不设', function () {
+  // 老赛事 / 没存过规则：缺字段 → 默认 30
+  eq(mr.normalizeRules({}).halftimeMinutes, 30, '缺字段走默认')
+  eq(mr.normalizeRules({ targetScore: 15 }).halftimeMinutes, 30)
+  // 组织者主动清空：null / '' / 0 → 不设
+  eq(mr.normalizeRules({ halftimeMinutes: null }).halftimeMinutes, null, '显式 null 就是不设')
+  eq(mr.normalizeRules({ halftimeMinutes: '' }).halftimeMinutes, null)
+  eq(mr.normalizeRules({ halftimeMinutes: 0 }).halftimeMinutes, null)
+  // 硬时限同理
+  eq(mr.normalizeRules({}).hardCapMinutes, null, '硬时限默认不设')
+  eq(mr.normalizeRules({ hardCapMinutes: 90 }).hardCapMinutes, 90)
+})
+
+test('validateRules：时间中场不能晚于软时限，硬时限必须晚于软时限', function () {
   const lateHalf = mr.validateRules({
     targetScore: 13, halftimeMinutes: 90, softCapMinutes: 60, halftimeBreakMinutes: 3,
   })
@@ -181,6 +213,25 @@ test('中场时间分支：一直不得分，到 30 分钟也进中场', functio
   eq(s.halfReached, true)
   eq(s.halfReason, 'time')
   eq(s.halfAtSec, 30 * 60)
+})
+
+test('时间中场不设时，中场只由分数分支触发', function () {
+  const noTime = Object.assign({}, R, { halftimeMinutes: null })
+  // 打了 50 分钟、只有 1:0：不进中场。默认 30 分钟的话这会儿早该中场了
+  const s1 = mr.clockState(noTime, START, pts([['A', 30]]), START + 50 * MIN)
+  eq(s1.halfReached, false)
+  eq(s1.inBreak, false)
+  eq(mr.clockHint(s1), '', '50 分钟未到软时限，也没有别的提示')
+  // 同样的时间点、用默认规则就会进中场——证明差别确实来自这个开关
+  eq(state(pts([['A', 30]]), 50).halfReached, true)
+
+  // 某队到 7 分才进中场
+  const list = []
+  for (let i = 0; i < 7; i++) list.push(['A', 40 * 60 + i])
+  const s2 = mr.clockState(noTime, START, pts(list), START + 45 * MIN)
+  eq(s2.halfReached, true)
+  eq(s2.halfReason, 'score')
+  eq(s2.halfAtSec, 40 * 60 + 6)
 })
 
 test('中场取较早者：分数分支 25 分钟发生在时间分支 30 分钟之前', function () {
