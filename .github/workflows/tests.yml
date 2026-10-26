@@ -1,0 +1,20 @@
+name: tests
+
+# 所有测试都是纯 Node，不依赖微信环境，也不需要 npm install —— 直接跑 tests/run-all.js。
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 跑全部测试套件
+        run: node tests/run-all.js

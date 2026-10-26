@@ -5,6 +5,9 @@
 
 一个活动里可以开多场赛事，每场按当次赛前检录的人重新分队，积分在活动层汇总。
 
+**要参与开发**请看 [CONTRIBUTING.md](./CONTRIBUTING.md)：分支与 PR 流程、提交前必须跑的测试、
+代码风格，以及几个反复踩过的坑。所有测试都是纯 Node，不需要微信环境。
+
 ## 快速开始
 
 当前项目已经配好了：
@@ -516,7 +519,10 @@ page {
 ## 测试
 
 测试**完全不需要微信环境**。双击 `run-tests.cmd` 即可：装了 Node 就用 Node，
-没装就自动用 VS Code 自带的 Node 运行时。
+没装就自动用 VS Code 自带的 Node 运行时。命令行等价于 `node tests/run-all.js`。
+
+推送到 GitHub 后，`.github/workflows/tests.yml` 会在每次 push 到 `main` 和每个 PR 上
+自动跑同一套测试（ubuntu + Node 20），PR 上红了就别合。
 
 | 套件 | 覆盖 |
 | --- | --- |

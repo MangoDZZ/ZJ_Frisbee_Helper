@@ -1,0 +1,11 @@
+# 仓库里统一存 LF，避免不同系统的人一提交就把整个文件变成"全改"。
+# Windows 上的 .bat/.cmd 必须保持 CRLF，否则 cmd.exe 解析 goto 标签会出错。
+* text=auto eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# 图片按二进制处理
+*.png binary
+*.jpg binary
+*.xlsx binary
+*.ico binary

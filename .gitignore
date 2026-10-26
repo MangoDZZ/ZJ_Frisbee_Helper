@@ -7,5 +7,11 @@ project.private.config.json
 # 启动脚本，含明文 API 令牌，与本项目无关
 cld.ps1
 
+# 本地的临时数据与脚本（名单导出、抽签试验等），含真实姓名/手机号，不要提交
+local/
+*.xlsx
+*.xls
+image.png
+
 .DS_Store
 *.log
