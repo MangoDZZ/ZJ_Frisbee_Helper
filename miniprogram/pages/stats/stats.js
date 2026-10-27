@@ -2,6 +2,7 @@
 
 const api = require('../../utils/api.js')
 const fmt = require('../../utils/format.js')
+const share = require('../../utils/share.js')
 
 /**
  * 得分助攻榜（活动级）。
@@ -39,10 +40,10 @@ Page({
   },
 
   onShareAppMessage: function () {
-    return {
+    return share.withImage({
       title: (this.data.eventName || '飞盘 HAT') + ' 得分助攻榜',
       path: '/pages/stats/stats?eventId=' + this.data.eventId,
-    }
+    })
   },
 
   load: function () {

@@ -333,6 +333,64 @@ if (!fs.existsSync(clientFieldsPath)) {
   }
 }
 
+// ---------------------------------------------------------------- 6. 分享封面
+
+console.log('检查分享封面的统一性')
+// 不指定 imageUrl 时微信会**截当前页面**当封面：组织者的视图里带评级（分队页每个人
+// 的水平数字），一分享就等于把评级发到群里。所以每个 onShareAppMessage 都必须
+// 走 utils/share.js，且那张图必须真的存在、比例是微信推荐的 5:4。
+const shareUtil = path.join(mp, 'utils', 'share.js')
+let shareImage = null
+if (!fs.existsSync(shareUtil)) {
+  bad('缺少 miniprogram/utils/share.js（分享封面的统一出口）')
+} else {
+  const src = fs.readFileSync(shareUtil, 'utf8')
+  const m = src.match(/SHARE_IMAGE\s*=\s*'([^']+)'/)
+  if (!m) {
+    bad('utils/share.js 里找不到 SHARE_IMAGE')
+  } else {
+    shareImage = m[1]
+    const file = path.join(mp, shareImage.replace(/^\//, ''))
+    if (!fs.existsSync(file)) {
+      bad('分享封面 ' + shareImage + ' 不存在')
+    } else {
+      // PNG 的 IHDR 宽高在固定偏移处，不用引图片库就能读
+      const buf = fs.readFileSync(file)
+      const isPng = buf.length > 24 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47
+      if (!isPng) {
+        bad('分享封面 ' + shareImage + ' 不是 PNG')
+      } else {
+        const w = buf.readUInt32BE(16)
+        const h = buf.readUInt32BE(20)
+        const ratio = w / h
+        if (Math.abs(ratio - 1.25) > 0.02) {
+          bad('分享封面 ' + shareImage + ' 是 ' + w + 'x' + h +
+            '，比例不是微信推荐的 5:4（1.25），分享出去会被裁')
+        }
+        if (buf.length > 200 * 1024) {
+          bad('分享封面 ' + shareImage + ' 超过 200KB，建议压缩')
+        }
+      }
+    }
+  }
+}
+
+// 逐页检查：只要定义了 onShareAppMessage，就必须用 share.withImage 包一层
+registered.forEach(function (p) {
+  const parts = p.split('/')
+  const jsPath = path.join(pagesDir, parts[1], parts[2] + '.js')
+  if (!fs.existsSync(jsPath)) return
+  const src = fs.readFileSync(jsPath, 'utf8')
+  if (src.indexOf('onShareAppMessage') < 0) return
+  if (src.indexOf('share.withImage') < 0) {
+    bad('[' + parts[1] + '] 定义了 onShareAppMessage 但没用 share.withImage 固定封面图，' +
+      '微信会截当前页面——组织者视图里的评级会跟着分享出去')
+  }
+  if (src.indexOf("require('../../utils/share.js')") < 0) {
+    bad('[' + parts[1] + '] 用了 share.withImage 却没有 require utils/share.js')
+  }
+})
+
 // ---------------------------------------------------------------- 汇总
 
 console.log('')

@@ -2,6 +2,7 @@
 
 const api = require('../../utils/api.js')
 const fmt = require('../../utils/format.js')
+const share = require('../../utils/share.js')
 
 Page({
   data: {
@@ -30,10 +31,10 @@ Page({
   },
 
   onShareAppMessage: function () {
-    return {
+    return share.withImage({
       title: (this.data.eventName || '飞盘 HAT') + ' 积分榜',
       path: '/pages/leaderboard/leaderboard?eventId=' + this.data.eventId,
-    }
+    })
   },
 
   load: function () {

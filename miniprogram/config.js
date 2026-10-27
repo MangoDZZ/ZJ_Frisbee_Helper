@@ -13,7 +13,7 @@ const ENV_ID = 'cloud1-d2gsqw6y62291250e'
  * 当前小程序版本号。后台管理页会显示它，用来回答"线上跑的是哪一版"——
  * 提交前记得跟着 plan.md 的版本一起改。
  */
-const VERSION = 'v1.1.4'
+const VERSION = 'v1.1.5'
 
 module.exports = {
   ENV_ID: ENV_ID,

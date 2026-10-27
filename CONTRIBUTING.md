@@ -73,6 +73,8 @@ node scripts/sync-shared.js
   并且别和底栏位置重叠（见 `pages/tournament-edit`）
 - **卡片上的按钮要用 `catchtap`。** 卡片自己绑了 `bindtap`，用 `bindtap` 会顺带触发外层跳转
 - **权限只信云函数。** 前端拿到的角色只用来控制按钮显隐，所有判定都在云函数里重做一遍
+- **分享必须用 `utils/share.js` 的 `withImage()`。** 不指定 `imageUrl` 时微信会截当前页面当
+  封面，组织者视图里带评级，一转发就泄露了。`check-pages.js` 会拦
 - **加字段改白名单。** 云函数对写入和返回都用白名单，漏改一处字段会被静默丢弃
 - **活动状态只有 open/closed。** "已分队"是**赛事级**的（`tournaments.status`），活动级没有这个值
 

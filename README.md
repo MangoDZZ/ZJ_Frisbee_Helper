@@ -461,6 +461,16 @@ node scripts/sync-shared.js   ← 改完 shared/ 必须跑一次，把副本刷�
 等于把组织者对每个人的评级直接念出来——看一眼名单顺序就知道谁被评了 5 分。
 姓名序（中文按拼音）对谁都不透露信息。组织者自己仍然看得到每人的水平标注和队均水平。
 
+**分享卡片用固定封面，不截屏。** 不指定 `imageUrl` 时微信会把**当前页面**截下来当封面，
+而分享者是组织者，他的分队页上每个人都带水平数字、标题下还有队均水平——一转发就等于
+把评级发到群里。所以所有 `onShareAppMessage` 统一走 `utils/share.js` 的 `withImage()`，
+封面固定为 `miniprogram/images/share.png`（500×400，5:4），与分享者屏幕上有什么无关。
+`tests/check-pages.js` 会逐页检查：定义了 `onShareAppMessage` 就必须用 `withImage`，
+且封面图存在、比例正确——漏一处就是一个泄露点。
+
+> 想换封面直接替换那张 png，不用改代码。要重新生成可以跑
+> `python scripts/make-share-image.py`（需要 Pillow 和微软雅黑字体，只在 Windows 下写过）。
+
 ## 主题色
 
 当前主题色 `#AC23FF`。改主题改两处：
@@ -478,6 +488,9 @@ page {
 
 **2. `miniprogram/app.json`** 里的 `navigationBarBackgroundColor`（顶部导航栏）和
 `tabBar.selectedColor`（底部标签栏），这两处小程序不支持变量，要手改。
+
+**3. 分享封面 `miniprogram/images/share.png`** 是按主色画的位图，换色后要重新生成或自己换一张
+（见上一节）。
 
 换颜色时留意对比度：白字配主色、主色字配白底都要够清楚。`--theme-ink` 单独存在，
 是因为 `#AC23FF` 写在浅紫底上对比度只有 3.88，小字偏淡；深一档的 `#8a10d6` 是 5.52。
@@ -587,7 +600,7 @@ page {
 | `name-match.test.js` | 赛前检录的粘贴名单：编号/分隔符/重名解析、精确与包含匹配、未识别与歧义 |
 | `format.test.js` | 时间与展示：时间戳拼装、跨天判定与文案、报名截止/已结束状态 |
 | `cloud.test.js` | 云函数：角色权限矩阵、水平保密、并发不超卖、赛事与比赛校验、逐分记录校验与比分推导、比赛状态、删除报名、随机事件与积分合并、得分助攻榜与我的数据、名单展示顺序、活动类型、报名表字段配置、群聊可见、比赛记录摘要、比赛规则与开表、得分时刻 |
-| `check-pages.js` | 静态检查：WXML 绑定、字段引用、云函数 action、`shared/` 副本一致（含小程序端副本）、跨端常量（`STAR_LEVEL`）与版本号 |
+| `check-pages.js` | 静态检查：WXML 绑定、字段引用、云函数 action、`shared/` 副本一致（含小程序端副本）、跨端常量（`STAR_LEVEL`）与版本号、分享封面统一性 |
 
 新增云函数时要在 `tests/check-pages.js` 的 `FN` 表里登记，否则对它的调用会被静默跳过。
 

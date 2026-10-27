@@ -2,6 +2,7 @@
 
 const api = require('../../utils/api.js')
 const fmt = require('../../utils/format.js')
+const share = require('../../utils/share.js')
 
 Page({
   data: {
@@ -45,10 +46,11 @@ Page({
     const token = e && e.groupOnly && this.data.shareToken
       ? '&t=' + this.data.shareToken
       : ''
-    return {
+    // 封面统一：否则微信会截当前页，组织者视图里的东西（如测试数据卡片）会漏出去
+    return share.withImage({
       title: e ? e.name + '｜' + this.data.timeText : '飞盘 HAT 活动',
       path: '/pages/event-detail/event-detail?id=' + this.data.eventId + token,
-    }
+    })
   },
 
   load: function () {

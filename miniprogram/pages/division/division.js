@@ -2,6 +2,7 @@
 
 const api = require('../../utils/api.js')
 const divider = require('../../utils/divide.js')
+const share = require('../../utils/share.js')
 
 Page({
   data: {
@@ -30,11 +31,17 @@ Page({
     this.boot()
   },
 
+  /**
+   * 分享分队结果。
+   *
+   * 必须固定封面图：不指定时微信会截当前页面，而组织者的视图里每个人都带
+   * 水平数字、队均水平也在标题下——一分享就把评级给群里所有人看了。
+   */
   onShareAppMessage: function () {
-    return {
+    return share.withImage({
       title: (this.data.tournamentName || '飞盘 HAT') + ' 分队结果',
       path: '/pages/division/division?tournamentId=' + this.data.tournamentId,
-    }
+    })
   },
 
   boot: function () {
