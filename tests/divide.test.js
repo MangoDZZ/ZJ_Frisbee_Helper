@@ -6,7 +6,8 @@
  *   node tests/divide.test.js
  */
 
-const { divide, ERR, WARN, STAR_LEVEL, weightedCost } = require('../miniprogram/utils/divide.js')
+const { divide, ERR, WARN, starLevelOf, isStar, weightedCost } =
+  require('../miniprogram/utils/divide.js')
 
 // ---------------------------------------------------------------- 测试框架
 
@@ -117,6 +118,17 @@ function checkInvariants (res, players, label) {
   eq(sumF, res.stats.femaleTotal, tag + 'Σ女生')
   eq(sumM, res.stats.maleTotal, tag + 'Σ男生')
 
+  // 「高分」的线是这批人里最高的那一档，算法必须自己算出来并回报，
+  // 不能是写死的 5 分——否则大多数业余局里这一项形同不存在。
+  const allLevels = []
+  for (let i = 0; i < res.teams.length; i++) {
+    for (let j = 0; j < res.teams[i].members.length; j++) {
+      allLevels.push(res.teams[i].members[j].level)
+    }
+  }
+  const starLine = starLevelOf(allLevels)
+  eq(res.stats.starLevel, starLine, tag + '回报的高分线')
+
   // 统计一致性：从 members 重算必须与返回的 stats 完全相等（抓统计漂移）
   for (let i = 0; i < res.teams.length; i++) {
     const t = res.teams[i]
@@ -128,7 +140,7 @@ function checkInvariants (res, players, label) {
       else if (p.gender === 'F') f++
       else u++
       ls += p.level
-      if (p.level >= STAR_LEVEL) star++
+      if (isStar(p.level, starLine)) star++
     }
     eq(t.stats.count, c, tag + t.name + ' count')
     eq(t.stats.male, m, tag + t.name + ' male')
@@ -182,6 +194,54 @@ function femaleCounts (res) {
 function hasWarning (res, code) {
   return res.warnings.some(function (w) { return w.code === code })
 }
+
+// ================================================================ 高分线的口径
+
+test('高分线 = 这批人里最高的那一档（没有 L5 时也生效）', function () {
+  // 全员 1-4 档：以前的写死 5 分会让"高分均衡"这一项完全不起作用
+  const roster = [4, 4, 3, 3, 3, 3, 2, 2, 1, 1]
+  eq(starLevelOf(roster), 4, '最高是 L4')
+
+  const players = []
+  for (let i = 0; i < roster.length; i++) players.push(P('p' + i, i % 2 ? 'F' : 'M', roster[i]))
+  const res = divide(players, 2, [], 7)
+  eq(res.ok, true)
+  eq(res.stats.starLevel, 4)
+  // 两个 L4 必须分到不同队，否则"高分均衡"白算
+  const fours = res.teams.map(function (t) {
+    return t.members.filter(function (m) { return m.level === 4 }).length
+  })
+  deepEq(fours, [1, 1])
+})
+
+test('全员同档 → 没有高分，starLevel 为 null，star 人数都是 0', function () {
+  // 都填 L3 的局很常见。若把"最高等级"当成高分线，那所有人都是高分，
+  // 这一项就退化成"人数均衡"的加权版，和文档写的权重语义对不上。
+  eq(starLevelOf([3, 3, 3, 3]), null)
+  const players = [P('a', 'M', 3), P('b', 'F', 3), P('c', 'M', 3), P('d', 'F', 3)]
+  const res = divide(players, 2, [], 3)
+  eq(res.ok, true)
+  eq(res.stats.starLevel, null)
+  eq(res.costBreakdown.star, 0, '没有高分时这一项必须是 0')
+  for (let i = 0; i < res.teams.length; i++) eq(res.teams[i].stats.star, 0)
+})
+
+test('高分线忽略非法等级，且只在有效等级里取最高', function () {
+  eq(starLevelOf([0, 4, 9, 3]), 4, '0 和 9 不是有效等级')
+  eq(starLevelOf([]), null)
+  eq(starLevelOf([5]), null, '只有一个有效等级 = 同档 → 没有高分')
+  eq(starLevelOf([1, 5]), 5)
+  ok(isStar(5, 5) && !isStar(4, 5))
+  ok(!isStar(5, null), '没有分档时谁都不算高分')
+})
+
+test('L5 在场时高分线才是 5（与改动前的行为一致）', function () {
+  const players = [P('a', 'M', 5), P('b', 'F', 5), P('c', 'M', 4), P('d', 'F', 3)]
+  const res = divide(players, 2, [], 11)
+  eq(res.stats.starLevel, 5)
+  const stars = res.teams.map(function (t) { return t.stats.star })
+  deepEq(stars.sort(), [1, 1], '两个 L5 要分开')
+})
 
 // ================================================================ 退化与边界
 

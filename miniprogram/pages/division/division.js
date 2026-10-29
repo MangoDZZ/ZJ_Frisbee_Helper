@@ -98,6 +98,11 @@ Page({
   },
 
   render: function (division, canSeeLevel) {
+    // 「高分」= 这批人里最高的那一档。线本身是动态的，不写出来就没人知道
+    // 「高分 2 人」到底指到哪一档；这也是一条水平信息，所以只给能看水平的人。
+    const starLine = canSeeLevel && division.starLevel
+      ? '（L' + division.starLevel + '）'
+      : ''
     const teams = (division.teams || []).map(function (t) {
       const s = t.stats
       return {
@@ -107,7 +112,7 @@ Page({
         // 水平不公开：非管理身份只显示人数和男女，不显示均分和高分人数
         statsText: canSeeLevel
           ? s.count + '人 · ' + s.male + '男' + s.female + '女 · 均分' +
-            s.avgLevel + ' · 高分' + s.star + '人'
+            s.avgLevel + ' · 高分' + s.star + '人' + starLine
           : s.count + '人 · ' + s.male + '男' + s.female + '女',
         members: (t.members || []).map(function (m) {
           return {

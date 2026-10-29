@@ -19,6 +19,7 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const common = require('./lib/common.js')
 const eventConfig = require('./lib/event-config.js')
 const roles = require('./lib/roles.js')
+const starLevelModule = require('./lib/star-level.js')
 const store = require('./lib/store.js')
 
 const db = cloud.database()
@@ -34,10 +35,9 @@ const trimStr = common.trimStr
 const asInt = common.asInt
 const removeWhere = common.removeWhere
 
-// 与 miniprogram/utils/divide.js 的 STAR_LEVEL 必须一致：这里是"高分球员"的界线，
-// 客户端拿它分队、这里拿它重算队伍统计，两边不一致就会出现"分队时按 5 分算、
-// 展示时说 4 分算高分"的怪数字。tests/check-pages.js 会断言两者相同。
-const STAR_LEVEL = 5
+// 「高分球员」的界线在 shared/star-level.js：本次上场的人里最高的那一档。
+// 客户端拿它分队、这里拿它重算队伍统计，所以必须共用同一份实现——
+// 各写一份就会出现"分队时按 5 分算、展示时说 4 分算高分"的怪数字。
 const MAX_CONSTRAINTS = 200
 const MAX_TOURNAMENTS = 50
 const MIN_TEAMS = 2
@@ -386,6 +386,13 @@ const actions = {
     // 名单基准是这场赛事的**赛前检录名单**，不是活动的全部报名。
     const expected = (tour.attendeeIds || []).slice()
 
+    // 「高分」的界线按这场赛事的检录名单算（不是全部报名）：今天没来的 L5
+    // 不该把本场的线钉死在 5 分。与客户端 divide() 用的是同一份 shared/star-level.js。
+    const starLevel = starLevelModule.starLevelOf(expected.map(function (id) {
+      const p = su.byId[id]
+      return p ? p.level : null
+    }))
+
     const seen = {}
     const teams = []
     for (let i = 0; i < teamsIn.length; i++) {
@@ -410,7 +417,7 @@ const actions = {
         count++
         if (p.gender === 'M') male++
         else if (p.gender === 'F') female++
-        if (p.level >= STAR_LEVEL) star++
+        if (starLevelModule.isStar(p.level, starLevel)) star++
         levelSum += p.level
       }
       teams.push({
@@ -451,6 +458,9 @@ const actions = {
         version: version,
         seed: d.seed == null ? null : String(d.seed),
         teams: teams,
+        // 这一版分队用的高分线（null = 这批人同档，没有高分）。存下来是为了
+        // 事后能解释"当时的『高分』指到哪一档"，而不是拿今天的名单去反推。
+        starLevel: starLevel,
         published: false,
         createTime: Date.now(),
       },
@@ -514,6 +524,9 @@ const actions = {
         version: div.version,
         seed: div.seed,
         published: div.published,
+        // 高分线只在能看水平的身份下返回：它等于"这个活动最强的人有多强"，
+        // 对参与者来说就是一条评级信息。
+        starLevel: seeLevel && div.starLevel !== undefined ? div.starLevel : null,
         createTime: div.createTime,
         teams: teams,
       },

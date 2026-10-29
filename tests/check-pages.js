@@ -237,7 +237,7 @@ FN_KEYS.forEach(function (k) {
 })
 
 // 小程序端也用的纯 JS 模块（同一份源码两个运行时共用，见 scripts/sync-shared.js）
-const MINIPROGRAM_SHARED = ['event-config.js', 'match-rules.js']
+const MINIPROGRAM_SHARED = ['event-config.js', 'match-rules.js', 'star-level.js']
 MINIPROGRAM_SHARED.forEach(function (file) {
   const copyPath = path.join(mp, 'utils', file)
   const srcPath = path.join(sharedDir, file)
@@ -268,20 +268,30 @@ if (fs.existsSync(rolesSrcPath)) {
 // ---------------------------------------------------------------- 5. 常量一致
 
 console.log('检查跨端常量与版本号')
-// STAR_LEVEL 决定"高分球员"的界线：客户端拿它分队，云函数拿它重算队伍统计。
-// 两边不一致时不会报错，只会出现"分队时按 5 分算、展示时说 4 分算高分"的怪数字。
+// 「高分」的界线由 shared/star-level.js 按每批人的最高档算出，两端必须用同一份实现：
+// 客户端拿它分队，云函数拿它重算队伍统计。各写一份就会出现"分队时按 5 分算、
+// 展示时说 4 分算高分"的怪数字，而这种错误不会报错，只会让人看不懂榜单。
 const clientDivide = fs.readFileSync(path.join(mp, 'utils', 'divide.js'), 'utf8')
-const clientStar = clientDivide.match(/const STAR_LEVEL = (\d+)/)
-if (!clientStar) bad('miniprogram/utils/divide.js 里找不到 STAR_LEVEL')
-FN_KEYS.forEach(function (k) {
-  const src = fs.readFileSync(path.join(root, 'cloudfunctions', FN[k], 'index.js'), 'utf8')
-  const m = src.match(/const STAR_LEVEL = (\d+)/)
-  if (!m) return                        // 这个云函数用不到，跳过
-  if (clientStar && m[1] !== clientStar[1]) {
-    bad('cloudfunctions/' + FN[k] + ' 的 STAR_LEVEL=' + m[1] +
-      ' 与 miniprogram/utils/divide.js 的 ' + clientStar[1] + ' 不一致')
-  }
-})
+if (!/require\('\.\/star-level\.js'\)/.test(clientDivide)) {
+  bad('miniprogram/utils/divide.js 没有用 shared/star-level.js 判定高分')
+}
+// 写死的界线必须彻底消失：它正是"大部分局里没有 L5、高分项形同不存在"的根源
+if (/STAR_LEVEL/.test(clientDivide)) {
+  bad('miniprogram/utils/divide.js 里还有写死的 STAR_LEVEL，高分线应来自 star-level.js')
+}
+const clientStarCall = /starLevelModule\.starLevelOf\(/.test(clientDivide)
+if (!clientStarCall) bad('miniprogram/utils/divide.js 没有调用 starLevelOf()')
+
+const teamSrc = fs.readFileSync(path.join(root, 'cloudfunctions', 'hat-team', 'index.js'), 'utf8')
+if (!/require\('\.\/lib\/star-level\.js'\)/.test(teamSrc)) {
+  bad('cloudfunctions/hat-team/index.js 没有用 lib/star-level.js 判定高分')
+}
+if (/STAR_LEVEL/.test(teamSrc)) {
+  bad('cloudfunctions/hat-team/index.js 里还有写死的 STAR_LEVEL')
+}
+if (!/starLevelModule\.starLevelOf\(/.test(teamSrc)) {
+  bad('cloudfunctions/hat-team/index.js 没有调用 starLevelOf()')
+}
 
 // 版本号：后台管理页显示它，plan.md 的最后一节是当前版本，两边必须同步
 const configSrc = fs.readFileSync(path.join(mp, 'config.js'), 'utf8')

@@ -14,12 +14,12 @@
  */
 
 const { createPrng, mixSeed, shuffleInPlace, randomSeed } = require('./prng.js')
+const starLevelModule = require('./star-level.js')
 
 const DEFAULT_RESTARTS = 1000
 const DEFAULT_LEVEL = 3
 const MIN_LEVEL = 1
 const MAX_LEVEL = 5
-const STAR_LEVEL = 5
 
 // 权重是优先级语义，不是待调的参数：人数/性别在真实名单里通常可精确达成，
 // 水平只能近似，所以 50:100 表示"宁可水平差一点，也不用性别失衡去换水平收益"。
@@ -485,12 +485,16 @@ function divide (players, teamCount, constraints, seed, options) {
   const n = norm.length
 
   // ---- 全局目标值 ----
+  // 「高分」的界线随这批人自适应的最高档（全员同档时为 null，即没有高分）。
+  // 规则本身在 shared/star-level.js，云函数保存分队时用同一份实现重算。
+  const starLevel = starLevelModule.starLevelOf(norm.map(function (p) { return p.level }))
+
   const totalCount = emptyCounts()
   let totalStar = 0
   let totalLevel = 0
   for (let i = 0; i < n; i++) {
     totalCount[norm[i].gender]++
-    if (norm[i].level >= STAR_LEVEL) totalStar++
+    if (starLevelModule.isStar(norm[i].level, starLevel)) totalStar++
     totalLevel += norm[i].level
   }
 
@@ -558,7 +562,7 @@ function divide (players, teamCount, constraints, seed, options) {
     pod.count[norm[i].gender]++
     pod.levelSumByClass[norm[i].gender] += norm[i].level
     pod.levelSum += norm[i].level
-    if (norm[i].level >= STAR_LEVEL) pod.star++
+    if (starLevelModule.isStar(norm[i].level, starLevel)) pod.star++
     playerPod[i] = pod.id
   }
   for (let i = 0; i < pods.length; i++) {
@@ -688,6 +692,8 @@ function divide (players, teamCount, constraints, seed, options) {
 
 function finish (teams, pods, norm, teamCount, targets, mu, invMuSq, seed, warnings, cost) {
   const breakdown = cost || totalCost(teams, targets, mu, invMuSq)
+  // 与 divide() 里算目标值时用的是同一个函数，所以两处不可能漂移
+  const starLevel = starLevelModule.starLevelOf(norm.map(function (p) { return p.level }))
 
   const outTeams = new Array(teams.length)
   let sizeMin = Infinity; let sizeMax = -Infinity
@@ -767,6 +773,9 @@ function finish (teams, pods, norm, teamCount, targets, mu, invMuSq, seed, warni
       sizeSpread: sizeMax - sizeMin,
       femaleSpread: femaleMax - femaleMin,
       avgLevelSpread: avgMax >= avgMin ? Math.round((avgMax - avgMin) * 100) / 100 : 0,
+      // 本次分队用的高分线（null = 这批人没有分档，高分项不参与打分）。
+      // 页面上「高分N人」的数就是按它统计的；云函数保存时用同一个函数重算。
+      starLevel: starLevel,
     },
     costBreakdown: {
       size: Math.round(breakdown.size * 1000) / 1000,
@@ -785,7 +794,8 @@ module.exports = {
   WARN,
   normalizeGender,
   normalizeLevel,
-  STAR_LEVEL,
+  starLevelOf: starLevelModule.starLevelOf,
+  isStar: starLevelModule.isStar,
   // 导出权重和加权函数，好让测试校验"分项明细"和"总分"是同一套公式算出来的
   WEIGHTS,
   weightedCost,

@@ -1805,18 +1805,39 @@ add('参与者看到的名单同样是姓名序，且没有水平', async functi
   }
 })
 
-add('高分球员界线：4 分不算高分，5 分才算（与客户端 STAR_LEVEL 一致）', async function () {
-  const ctx = await setupTournament([2, 2])
-  const a0 = ctx.teams[0].memberIds[0]
-  const a1 = ctx.teams[0].memberIds[1]
-  await expectOk(as(OWNER, hatSignup, 'updateLevel', {
-    eventId: ctx.eventId, signupId: a0, adminLevel: 4,
+add('高分线取赛前检录名单里的最高档，缺席的 L5 不影响本场', async function () {
+  // setupEvent 的自评水平是 (i%5)+1 → 1,2,3,4,5,1
+  const ev = await setupEvent(6)
+  const absentL5 = ev.ids[4]          // 报了名但本场没检录
+  const attend = ev.ids.slice(0, 4)   // 到场：1,2,3,4
+
+  const t = await expectOk(as(OWNER, hatTeam, 'createTournament', {
+    eventId: ev.eventId, name: '第 1 场', teamCount: 2, attendeeIds: attend,
   }))
-  await expectOk(as(OWNER, hatSignup, 'updateLevel', {
-    eventId: ctx.eventId, signupId: a1, adminLevel: 5,
+  await expectOk(as(OWNER, hatTeam, 'saveDivision', {
+    tournamentId: t._id,
+    teams: [
+      { name: '1队', memberIds: [attend[0], attend[1]] },
+      { name: '2队', memberIds: [attend[2], attend[3]] },
+    ],
   }))
 
-  // 重存一次分队让服务端按新水平重算 stats.star
+  const div = await expectOk(as(OWNER, hatTeam, 'getDivision', { tournamentId: t._id }))
+  // 到场的最高是 L4，所以线是 4；缺席的 L5 不该把线钉到 5
+  eq(div.division.starLevel, 4, '线按检录名单算，不看没来的人')
+  const starTotal = div.division.teams.reduce(function (a, x) { return a + x.stats.star }, 0)
+  eq(starTotal, 1, '到场 4 人里只有 1 个 L4')
+  ok(mock.get('signups', absentL5).selfLevel === 5, '缺席的那位确实是 L5')
+})
+
+add('全员同档时没有高分：starLevel 为 null、star 均为 0', async function () {
+  const ctx = await setupTournament([2, 2])
+  // 把这场赛事 4 个人都调成 L3
+  for (let i = 0; i < ctx.ids.length; i++) {
+    await expectOk(as(OWNER, hatSignup, 'updateLevel', {
+      eventId: ctx.eventId, signupId: ctx.ids[i], adminLevel: 3,
+    }))
+  }
   await expectOk(as(OWNER, hatTeam, 'saveDivision', {
     tournamentId: ctx.tournamentId,
     teams: [
@@ -1824,12 +1845,40 @@ add('高分球员界线：4 分不算高分，5 分才算（与客户端 STAR_LE
       { name: '2队', memberIds: ctx.teams[1].memberIds },
     ],
   }))
-  const div = await expectOk(as(OWNER, hatTeam, 'getDivision',
+  const div = await expectOk(as(OWNER, hatTeam, 'getDivision', { tournamentId: ctx.tournamentId }))
+  eq(div.division.starLevel, null, '没有分档')
+  for (let i = 0; i < div.division.teams.length; i++) {
+    eq(div.division.teams[i].stats.star, 0, '同档时谁都不算高分')
+  }
+})
+
+add('高分线属于水平信息，参与者拿不到', async function () {
+  const ctx = await setupTournament([2, 2])
+  for (let i = 0; i < ctx.ids.length; i++) {
+    await expectOk(as(OWNER, hatSignup, 'updateLevel', {
+      eventId: ctx.eventId, signupId: ctx.ids[i], adminLevel: i + 1,
+    }))
+  }
+  const saved = await expectOk(as(OWNER, hatTeam, 'saveDivision', {
+    tournamentId: ctx.tournamentId,
+    teams: [
+      { name: '1队', memberIds: ctx.teams[0].memberIds },
+      { name: '2队', memberIds: ctx.teams[1].memberIds },
+    ],
+  }))
+  await expectOk(as(OWNER, hatTeam, 'publish', {
+    tournamentId: ctx.tournamentId, divisionId: saved._id,
+  }))
+
+  const mine = await expectOk(as('player-0', hatTeam, 'getDivision',
     { tournamentId: ctx.tournamentId }))
-  const teamA = div.division.teams.filter(function (t) {
-    return t.members.some(function (m) { return m._id === a1 })
-  })[0]
-  eq(teamA.stats.star, 1, '同队里 4 分不算高分、5 分算，所以正好 1 个')
+  eq(mine.canSeeLevel, false)
+  eq(mine.division.starLevel, null, '高分线等于"最强的人有多强"，不能给参与者')
+  ok(mine.division.teams[0].stats.star === undefined, '高分人数也不给')
+
+  const org = await expectOk(as(OWNER, hatTeam, 'getDivision',
+    { tournamentId: ctx.tournamentId }))
+  eq(org.division.starLevel, 4, '组织者看得到线（4 人水平 1-4）')
 })
 
 add('组织者拥有管理权限并可以看到水平', async function () {
