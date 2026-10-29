@@ -34,6 +34,20 @@ const MIN_LEVEL = 1
 const MAX_LEVEL = 5
 const MAX_IMPORT_ROWS = 500
 
+/**
+ * 把异常压缩成一句能挂在提示后面的短原因。
+ *
+ * 直接把 `e.message` 丢给用户会出现「ENOENT: no such file or directory, open
+ * '/tmp/xxx'」这种只对开发者有意义的原文；但完全不提原因又没法排查。
+ * 所以截断并去掉换行，附在中文说明后面，既能看懂也留了线索。
+ */
+function shortReason (e) {
+  const raw = (e && (e.errMsg || e.message)) || ''
+  const one = String(raw).replace(/\s+/g, ' ').trim()
+  if (!one) return '原因未知'
+  return one.length > 120 ? one.slice(0, 120) + '…' : one
+}
+
 // ---------------------------------------------------------------- 测试数据
 
 const MAX_TEST_SEED = 60
@@ -406,18 +420,48 @@ const actions = {
     const fileID = trimStr(d.fileID)
     if (!fileID || fileID.length > 512) return err('INVALID_INPUT', '缺少导入文件')
 
-    let rows
+    // 下面每一步单独 try：导入失败的常见原因有五六种（依赖没装、文件下载不到、
+    // 不是真正的 xlsx、表头不对、名额不够、写入超时），一律回一句"无法读取"的话，
+    // 用户和我们都无从下手。每一步给出可执行的说法。
+    let XLSX
     try {
       // xlsx 只在真正导入时加载，普通报名请求不增加冷启动依赖开销。
-      const XLSX = require('xlsx')
+      XLSX = require('xlsx')
+    } catch (requireError) {
+      console.error('[hat-signup] xlsx 依赖缺失', requireError)
+      return err('IMPORT_NO_XLSX',
+        '云函数里没装 xlsx 依赖，无法解析 Excel。请在开发者工具里右键 cloudfunctions/hat-signup → ' +
+        '「上传并部署：云端安装依赖」后重试')
+    }
+
+    let buffer
+    try {
       const downloaded = await cloud.downloadFile({ fileID: fileID })
-      const workbook = XLSX.read(downloaded.fileContent, { type: 'buffer', cellDates: false })
+      buffer = downloaded && downloaded.fileContent
+    } catch (downloadError) {
+      console.error('[hat-signup] import download failed fileID=' + fileID, downloadError)
+      return err('IMPORT_DOWNLOAD_FAILED',
+        '文件下载失败，可能是上传没完成或文件已被删除，请重新选择文件（' +
+        shortReason(downloadError) + '）')
+    }
+    if (!buffer || !buffer.length) {
+      return err('IMPORT_EMPTY_FILE', '上传的文件是空的（0 字节），请检查表格内容后重试')
+    }
+
+    let rows
+    try {
+      const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: false })
       const names = workbook.SheetNames || []
-      if (names.length === 0) return err('INVALID_IMPORT', '文件里没有工作表')
+      if (names.length === 0) return err('INVALID_IMPORT', '这个文件里没有工作表')
       rows = XLSX.utils.sheet_to_json(workbook.Sheets[names[0]], { header: 1, defval: '' })
-    } catch (e2) {
-      console.error('[hat-signup] import read failed', e2)
-      return err('INVALID_IMPORT', '无法读取 Excel 文件，请上传 .xlsx 文件')
+    } catch (readError) {
+      console.error('[hat-signup] import read failed', readError)
+      return err('IMPORT_BAD_FILE',
+        '这个文件不是有效的 Excel，或者已加密 / 用了不支持的格式，请另存为 .xlsx 后重试（' +
+        shortReason(readError) + '）')
+    }
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return err('INVALID_IMPORT', '表格里没有内容（第一个工作表是空的）')
     }
 
     const parsed = importList.parseRows(rows)
@@ -426,56 +470,91 @@ const actions = {
     if (list.length > MAX_IMPORT_ROWS) {
       return err('INVALID_IMPORT', '一次最多导入 ' + MAX_IMPORT_ROWS + ' 人')
     }
-    if (evt.remaining < list.length) {
-      return err('EVENT_FULL', '剩余名额只有 ' + evt.remaining + ' 个，导入需要 ' + list.length + ' 个', {
-        remaining: evt.remaining, requested: list.length,
-      })
+    // remaining 理论上一定存在，但老文档万一是 undefined，"还剩 undefined 个"这种提示
+    // 比不给提示更让人困惑。用 asInt 兜一层，把"读不到"如实说出来。
+    const remaining = asInt(evt.remaining)
+    const remainingText = remaining === null ? '未知（可能被手工改过数据）' : String(remaining)
+    if (remaining !== null && remaining < list.length) {
+      return err('EVENT_FULL',
+        '名额不够：活动只剩 ' + remaining + ' 个名额，这次要导入 ' + list.length +
+        ' 人。可以先在「编辑活动」里把人数上限调大，或者删掉表格里多余的行',
+        { remaining: remaining, requested: list.length })
     }
 
     // 和真实报名、测试数据共用原子占位，保证导入不会绕过人数上限。
     const claim = await events.where({ _id: evt._id, remaining: _.gte(list.length) }).update({
       data: { remaining: _.inc(-list.length), signupCount: _.inc(list.length) },
     })
-    if (!claim.stats || claim.stats.updated !== 1) return err('EVENT_FULL', '名额不足，请刷新后重试')
+    if (!claim.stats || claim.stats.updated !== 1) {
+      return err('EVENT_FULL',
+        '名额不足：读取时还剩 ' + remainingText + ' 个，导入需要 ' + list.length +
+        ' 个。可能是刚刚有人同时报名或导入了，刷新后再试',
+        { remaining: remaining, requested: list.length })
+    }
 
     const batch = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8)
+    // 并发写：一条一条串行写时，500 人要 500 次往返，很容易撞上云函数 3 秒的默认超时，
+    // 而超时的表现是"调用失败"，看不出是数据量的问题。分小批并发既快也留得住可控性。
+    const CHUNK = 20
     let added = 0
-    try {
-      for (let i = 0; i < list.length; i++) {
-        const s = list[i]
-        const now = Date.now()
-        await signups.add({ data: {
-          eventId: evt._id,
-          openid: 'import-' + batch + '-' + i,
-          name: s.name,
-          gender: s.gender,
-          selfLevel: s.selfLevel,
-          adminLevel: null,
-          age: null,
-          phone: s.phone || '',
-          className: '',
-          studentId: '',
-          remark: s.remark || '',
-          status: 'signed',
-          isImported: true,
-          importBatch: batch,
-          sourceRow: s.sourceRow,
-          createTime: now + i,
-          updateTime: now,
-        } })
-        added++
+    const writeOne = function (s, i) {
+      const now = Date.now()
+      return signups.add({ data: {
+        eventId: evt._id,
+        openid: 'import-' + batch + '-' + i,
+        name: s.name,
+        gender: s.gender,
+        selfLevel: s.selfLevel,
+        adminLevel: null,
+        age: null,
+        phone: s.phone || '',
+        className: '',
+        studentId: '',
+        remark: s.remark || '',
+        status: 'signed',
+        isImported: true,
+        importBatch: batch,
+        sourceRow: s.sourceRow,
+        createTime: now + i,
+        updateTime: now,
+      } }).then(function () { added++ })
+    }
+
+    let writeError = null
+    for (let at = 0; at < list.length && !writeError; at += CHUNK) {
+      const slice = list.slice(at, at + CHUNK)
+      try {
+        await Promise.all(slice.map(function (s, k) { return writeOne(s, at + k) }))
+      } catch (e) {
+        writeError = e
       }
-    } catch (addError) {
+    }
+
+    if (writeError) {
+      console.error('[hat-signup] 导入写入失败 eventId=' + evt._id + ' added=' + added, writeError)
+      let rolledBack = true
       if (added > 0) {
-        await removeWhere(db, 'signups', { eventId: evt._id, importBatch: batch })
-          .catch(function () {})
+        try {
+          await removeWhere(db, 'signups', { eventId: evt._id, importBatch: batch })
+        } catch (e) {
+          rolledBack = false
+          console.error('[hat-signup] 导入回滚失败 eventId=' + evt._id, e)
+        }
       }
-      await events.doc(evt._id).update({
-        data: { remaining: _.inc(list.length), signupCount: _.inc(-list.length) },
-      }).catch(function (e2) {
+      try {
+        await events.doc(evt._id).update({
+          data: { remaining: _.inc(list.length), signupCount: _.inc(-list.length) },
+        })
+      } catch (e2) {
+        rolledBack = false
         console.error('[hat-signup] 导入名单名额补偿失败 eventId=' + evt._id, e2)
-      })
-      throw addError
+      }
+      // 这里不往上抛：抛出去只会变成一句 INTERNAL，说不清是"写到一半失败"。
+      return err('IMPORT_WRITE_FAILED',
+        '写入名单失败（成功 ' + added + ' / ' + list.length + ' 条）：' + shortReason(writeError) +
+        (rolledBack ? '。已经回滚，名额没有被占用，可以重试'
+          : '。回滚也不完整，请刷新活动详情核对人数后再重试'),
+        { added: added, total: list.length, rolledBack: rolledBack })
     }
     return ok({ imported: added, batch: batch })
   },

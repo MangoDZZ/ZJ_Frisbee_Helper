@@ -4,7 +4,14 @@
  * 云函数调用封装。所有请求都走这里，统一处理返回格式、loading 和报错提示。
  */
 
+const apiError = require('./api-error.js')
 const config = require('../config.js')
+
+/**
+ * showToast 只显示两行左右，长提示会被截断，等于白写。
+ * 超过这个长度改用弹窗——细化报错的意义就在于那句话要能被完整读到。
+ */
+const TOAST_MAX = 20
 
 /**
  * @param {string} name   云函数名
@@ -31,22 +38,38 @@ function call (name, action, data, opts) {
   }).then(function (res) {
     if (loading) wx.hideLoading()
     const r = res && res.result
-    if (!r) throw new Error('云函数没有返回内容')
+    if (!r) {
+      const e = new Error('云函数 ' + name + ' 没有返回内容（' + action + '）')
+      e.code = 'EMPTY_RESULT'
+      throw e
+    }
     if (r.ok) return r.data
-    const e = new Error((r.error && r.error.message) || '操作失败')
-    e.code = r.error && r.error.code
-    e.detail = r.error && r.error.detail
+    // 服务端带了 code/message 就直接用；万一信封缺字段，也别只说「操作失败」
+    const errInfo = r.error || {}
+    const e = new Error(errInfo.message ||
+      ('云函数 ' + name + ' 的 ' + action + ' 返回了失败，但没有说明原因'))
+    e.code = errInfo.code
+    e.detail = errInfo.detail || null
     throw e
   }).catch(function (e) {
     if (loading) wx.hideLoading()
-    // 网络层失败拿不到我们自己的错误格式，给一个能看懂的提示。
+    // 网络层失败拿不到我们自己的信封，从 errMsg 里判断到底哪一环坏了
     if (!e.code && e.errMsg) {
-      e.message = e.errMsg.indexOf('FunctionName') >= 0
-        ? '云函数 ' + name + ' 还没部署，请在开发者工具里右键 cloudfunctions/' + name + ' 上传部署'
-        : '网络异常，请重试'
+      const described = apiError.describeCallFailure(name, e.errMsg)
+      if (described) {
+        e.code = described.code
+        e.message = described.message
+      } else {
+        e.message = apiError.fallbackMessage(name, action, e.errMsg)
+      }
     }
     if (toastError) {
-      wx.showToast({ title: e.message || '操作失败', icon: 'none', duration: 2500 })
+      const text = e.message || '操作失败'
+      if (text.length > TOAST_MAX) {
+        wx.showModal({ title: '操作失败', content: text, showCancel: false })
+      } else {
+        wx.showToast({ title: text, icon: 'none', duration: 3000 })
+      }
     }
     throw e
   })

@@ -328,10 +328,18 @@ Page({
     wx.chooseMessageFile({
       count: 1,
       type: 'file',
-      extension: ['.xlsx', '.xls'],
+      // extension 里不能带前导点：传 '.xlsx' 会让过滤条件失效（选不出文件）
+      extension: ['xlsx', 'xls'],
       success: function (pick) {
         const file = pick.tempFiles && pick.tempFiles[0]
-        if (!file || !file.path) return
+        if (!file || !file.path) {
+          wx.showModal({
+            title: '没拿到文件',
+            content: '微信没有返回文件路径，可能是文件已被撤回或清理。请重新在聊天记录里选择一次。',
+            showCancel: false,
+          })
+          return
+        }
         const name = file.name || ''
         if (!/\.(xlsx|xls)$/i.test(name)) {
           wx.showModal({ title: '文件格式不对', content: '请选择 .xlsx 或 .xls 文件', showCancel: false })
@@ -367,12 +375,25 @@ Page({
                 })
               })
               .catch(function (e) {
-                cleanup().then(function () {
-                  wx.showModal({ title: '导入失败', content: e.message || '请检查表格格式', showCancel: false })
+                return cleanup().then(function () {
+                  wx.showModal({
+                    title: '导入失败',
+                    content: importFailureText(e),
+                    showCancel: false,
+                  })
                 })
               })
               .then(function () { that.setData({ importing: false }) })
           },
+        })
+      },
+      fail: function (e) {
+        // 用户主动取消不算错误，不要弹窗
+        if (e && /cancel/i.test(e.errMsg || '')) return
+        wx.showModal({
+          title: '没能选择文件',
+          content: (e && e.errMsg) || '未知原因，请重试',
+          showCancel: false,
         })
       },
     })
@@ -386,3 +407,20 @@ Page({
     wx.navigateTo({ url: '/pages/leaderboard/leaderboard?eventId=' + this.data.eventId })
   },
 })
+
+/**
+ * 导入失败弹窗的正文。
+ *
+ * 只说一句「导入失败」没法排查：可能是表格格式不对、名额不够、云函数没部署、
+ * 依赖没装、或者恰好超时——处理方式完全不同。所以正文里一定带上具体说法和错误码，
+ * 格式问题还要说明一共几处（服务端只列前 10 条，否则弹窗会很长）。
+ */
+function importFailureText (e) {
+  const parts = [(e && e.message) || '未知原因，请重试']
+  const detail = e && e.detail
+  if (detail && Array.isArray(detail.errors) && detail.errors.length > 10) {
+    parts.push('表格里一共有 ' + detail.errors.length + ' 处问题，上面只列出前 10 条。')
+  }
+  if (e && e.code) parts.push('错误码：' + e.code)
+  return parts.join('\n')
+}

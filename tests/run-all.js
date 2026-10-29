@@ -19,6 +19,7 @@ const SUITES = [
   ['比赛规则与时间轴', 'match-rules.test.js'],
   ['粘贴名单匹配', 'name-match.test.js'],
   ['时间与展示', 'format.test.js'],
+  ['云函数报错翻译', 'api-error.test.js'],
   ['云函数逻辑', 'cloud.test.js'],
   ['页面一致性', 'check-pages.js'],
 ]

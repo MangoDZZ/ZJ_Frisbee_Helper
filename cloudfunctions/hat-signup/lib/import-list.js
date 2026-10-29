@@ -87,7 +87,13 @@ function parseRows (rows) {
     }
   }
   if (errors.length > 0) {
-    return { error: { code: 'INVALID_IMPORT', message: errors.slice(0, 10).join('；'), detail: { errors: errors } } }
+    // 一次列全只会让提示长到看不完，前 10 条足够定位问题；但要说明"还有几处"，
+    // 否则用户改完这 10 条、再导入又失败，会以为程序在循环报错。
+    const head = errors.slice(0, 10).join('；')
+    const tail = errors.length > 10 ? '（共 ' + errors.length + ' 处问题，上面只列出前 10 条）' : ''
+    return {
+      error: { code: 'INVALID_IMPORT', message: head + tail, detail: { errors: errors } },
+    }
   }
   if (list.length === 0) return { error: { code: 'INVALID_IMPORT', message: '表格没有有效名单' } }
   return { value: list }
