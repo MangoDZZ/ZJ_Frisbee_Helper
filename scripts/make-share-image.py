@@ -51,9 +51,9 @@ tag_font = ImageFont.truetype(BOLD, 20)
 small_font = ImageFont.truetype(REGULAR, 20)
 
 # 左上角小标签：白色半透明胶囊 + 白字
-tag = "HAT EVENT"
+tag = "Match Helper"
 tw = draw.textlength(tag, font=tag_font)
-pill = [50, 60, 50 + tw + 36, 60 + 42]
+pill = [50, 50, 50 + tw + 36, 50 + 42]
 layer, d = overlay()
 d.rounded_rectangle(pill, radius=21, fill=(255, 255, 255, 46))
 img = Image.alpha_composite(img, layer)
@@ -61,15 +61,15 @@ draw = ImageDraw.Draw(img)
 draw.text((pill[0] + 18, pill[1] + 9), tag, font=tag_font, fill=WHITE + (255,))
 
 # 主标题
-draw.text((50, 128), "飞盘 HAT", font=title_font, fill=WHITE + (255,))
-draw.text((50, 202), "赛事组织助手", font=title_font, fill=WHITE + (255,))
+draw.text((50, 100), "THU", font=title_font, fill=WHITE + (255,))
+draw.text((50, 172), "紫荆飞盘助手", font=title_font, fill=WHITE + (255,))
 
 # 副标题：一句话说清这个小程序干什么
-draw.text((52, 292), "报名 · 分队 · 记分 · 积分榜", font=sub_font, fill=(255, 255, 255, 225))
+draw.text((52, 264), "报名 · 分队 · 记分 · 积分榜", font=sub_font, fill=(255, 255, 255, 225))
 
 # 底部细线 + 一行补充说明
-draw.line([(52, 344), (W - 52, 344)], fill=(255, 255, 255, 70), width=2)
-draw.text((52, 356), "随机均衡分队，赛后可查个人数据", font=small_font,
+draw.line([(52, 316), (W - 52, 316)], fill=(255, 255, 255, 70), width=2)
+draw.text((52, 328), "办赛如此简单~", font=small_font,
           fill=(255, 255, 255, 170))
 
 out = r"E:\HAT_helper\miniprogram\images\share.png"
