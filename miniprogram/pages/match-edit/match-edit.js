@@ -1,6 +1,7 @@
 'use strict'
 
 const api = require('../../utils/api.js')
+const eventConfig = require('../../utils/event-config.js')
 const mr = require('../../utils/match-rules.js')
 
 /**
@@ -25,6 +26,7 @@ Page({
     loading: true,
     failMessage: '',
     submitting: false,
+    boardLabel: '积分榜',
 
     stage: STAGE_LINEUP,
     STAGE_LINEUP: STAGE_LINEUP,
@@ -102,6 +104,7 @@ Page({
         }
         that.setData({
           eventId: d.eventId,
+          boardLabel: eventConfig.boardLabel(d.eventType),
           canSeeLevel: !!d.canSeeLevel,
           teams: d.division.teams.map(function (t) {
             return { index: t.index, name: t.name, members: t.members }

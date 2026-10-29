@@ -5,64 +5,109 @@
   <block wx:elif="{{!failMessage}}">
     <view class="card">
       <view class="card-title">{{eventName}}</view>
-      <view class="card-meta">
+      <view wx:if="{{mode === 'team'}}" class="card-meta">
+        {{tournamentName}} · 已记录 {{matchCount}} 场比赛
+      </view>
+      <view wx:else class="card-meta">
         {{tournamentCount}} 场赛事 · 已记录 {{totals.matchCount}} 场比赛 ·
         {{totals.playedCount}}/{{totals.playerCount}} 人上过场
       </view>
-      <view class="rule-block">
+      <view wx:if="{{mode === 'team'}}" class="rule-block">
+        <view class="rule-item">
+          <text class="rule-label">赛制</text>
+          <text>经典 HAT：只分一次队，名次看队伍胜负</text>
+        </view>
+        <view class="rule-item">
+          <text class="rule-label">净胜分</text>
+          <text>总得分 − 总失分，只用来比较同胜负的队伍</text>
+        </view>
+      </view>
+      <view wx:else class="rule-block">
         <view wx:for="{{ruleGroups}}" wx:key="label" class="rule-item">
           <text class="rule-label">{{item.label}}</text>
           <text>{{item.text}}</text>
         </view>
       </view>
       <view wx:if="{{liveMatchCount > 0}}" class="banner banner-warn gap">
-        有 {{liveMatchCount}} 场比赛还在进行中，它们的得分已经计入本榜，结束后数字才会定稿。
+        有 {{liveMatchCount}} 场比赛还在进行中，{{mode === 'team' ? '胜负' : '得分'}}已经计入本榜，结束后数字才会定稿。
       </view>
-      <view class="field-hint">本榜汇总了这个活动下全部赛事的积分。</view>
+      <view wx:if="{{mode === 'team'}}" class="field-hint">
+        队伍按分队列出，方便到场后按序号找队。
+      </view>
+      <view wx:else class="field-hint">本榜汇总了这个活动下全部赛事的积分。</view>
     </view>
 
-    <view wx:if="{{totals.matchCount === 0}}" class="banner banner-info">
-      还没有比赛记录，积分都是 0。
-    </view>
-
-    <view class="card">
-      <view class="lb-head">
-        <text class="lb-rank">名次</text>
-        <text class="lb-name">姓名</text>
-        <text class="lb-mvp">MVP</text>
-        <text class="lb-pts">积分</text>
+    <!-- 经典 HAT：队伍战绩 -->
+    <block wx:if="{{mode === 'team'}}">
+      <view wx:if="{{!hasDivision}}" class="banner banner-info">
+        还没分队。先到赛事页完成分队并发布，这里就会显示各队的胜负。
       </view>
-
-      <view wx:for="{{rows}}" wx:key="signupId" class="lb-row {{item.dimClass}}">
-        <text class="lb-rank {{item.rankClass}}">{{item.rank}}</text>
-        <view class="lb-name">
-          <text class="strong">{{item.name}}</text>
-          <text class="muted small">{{item.recordText}}</text>
-          <text wx:if="{{item.pointText}}" class="muted small">{{item.pointText}}</text>
-          <text wx:if="{{item.eventText}}" class="muted small">{{item.eventText}}</text>
-          <text wx:if="{{item.resetText}}" class="muted small reset-text">{{item.resetText}}</text>
+      <view wx:elif="{{teams.length === 0}}" class="banner banner-info">
+        分队里没有队伍。
+      </view>
+      <view wx:else class="card">
+        <view class="lb-head">
+          <view class="tm-name">队伍</view>
+          <text class="tm-num">胜</text>
+          <text class="tm-num">负</text>
+          <text class="tm-diff">净胜分</text>
         </view>
-        <text class="lb-mvp">{{item.mvpCount > 0 ? item.mvpCount : '-'}}</text>
-        <text class="lb-pts">{{item.points}}</text>
-      </view>
-    </view>
-
-    <!-- 随机事件：参与者也能看到"这几分是怎么来的" -->
-    <view wx:if="{{recentDraws.length > 0}}" class="card">
-      <view class="card-title">随机事件</view>
-      <view class="field-hint">由组织者抽取，效果已计入上面的积分。</view>
-      <view wx:for="{{recentDraws}}" wx:key="_id" class="draw-row">
-        <view class="draw-main">
-          <view class="row">
-            <text class="strong">{{item.text}}</text>
-            <text class="delta {{item.delta > 0 ? 'delta-plus' : 'delta-minus'}}">{{item.deltaText}}</text>
+        <view wx:for="{{teams}}" wx:key="index" class="lb-row">
+          <view class="tm-name">
+            <text class="strong">{{item.name}}</text>
+            <text class="muted small">{{item.scoreFor}} : {{item.scoreAgainst}} · {{item.played}} 场</text>
           </view>
-          <view class="muted small">{{item.namesText}}</view>
+          <text class="tm-num strong">{{item.won}}</text>
+          <text class="tm-num">{{item.lost}}</text>
+          <text class="tm-diff {{item.diff > 0 ? 'diff-plus' : (item.diff < 0 ? 'diff-minus' : '')}}">{{item.diffText}}</text>
         </view>
-        <text class="muted small">{{item.timeText}}</text>
       </view>
-      <view class="muted small gap">只显示最近 {{recentDraws.length}} 条</view>
-    </view>
+    </block>
+
+    <block wx:else>
+      <view wx:if="{{totals.matchCount === 0}}" class="banner banner-info">
+        还没有比赛记录，积分都是 0。
+      </view>
+
+      <view class="card">
+        <view class="lb-head">
+          <text class="lb-rank">名次</text>
+          <text class="lb-name">姓名</text>
+          <text class="lb-mvp">MVP</text>
+          <text class="lb-pts">积分</text>
+        </view>
+
+        <view wx:for="{{rows}}" wx:key="signupId" class="lb-row {{item.dimClass}}">
+          <text class="lb-rank {{item.rankClass}}">{{item.rank}}</text>
+          <view class="lb-name">
+            <text class="strong">{{item.name}}</text>
+            <text class="muted small">{{item.recordText}}</text>
+            <text wx:if="{{item.pointText}}" class="muted small">{{item.pointText}}</text>
+            <text wx:if="{{item.eventText}}" class="muted small">{{item.eventText}}</text>
+            <text wx:if="{{item.resetText}}" class="muted small reset-text">{{item.resetText}}</text>
+          </view>
+          <text class="lb-mvp">{{item.mvpCount > 0 ? item.mvpCount : '-'}}</text>
+          <text class="lb-pts">{{item.points}}</text>
+        </view>
+      </view>
+
+      <!-- 随机事件：参与者也能看到"这几分是怎么来的" -->
+      <view wx:if="{{recentDraws.length > 0}}" class="card">
+        <view class="card-title">随机事件</view>
+        <view class="field-hint">由组织者抽取，效果已计入上面的积分。</view>
+        <view wx:for="{{recentDraws}}" wx:key="_id" class="draw-row">
+          <view class="draw-main">
+            <view class="row">
+              <text class="strong">{{item.text}}</text>
+              <text class="delta {{item.delta > 0 ? 'delta-plus' : 'delta-minus'}}">{{item.deltaText}}</text>
+            </view>
+            <view class="muted small">{{item.namesText}}</view>
+          </view>
+          <text class="muted small">{{item.timeText}}</text>
+        </view>
+        <view class="muted small gap">只显示最近 {{recentDraws.length}} 条</view>
+      </view>
+    </block>
 
     <view class="footer-spacer"></view>
   </block>

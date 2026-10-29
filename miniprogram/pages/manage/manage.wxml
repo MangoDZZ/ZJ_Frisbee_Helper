@@ -141,7 +141,7 @@
 </view>
 
 <view wx:if="{{event && !failMessage && !loading}}" class="footer-bar">
-  <button class="btn btn-plain" bindtap="viewLeaderboard">积分榜</button>
+  <button class="btn btn-plain" bindtap="viewLeaderboard">{{boardLabel}}</button>
   <button class="btn btn-ghost" bindtap="goRandomEvents">随机事件</button>
   <button class="btn" bindtap="goTournaments">赛事</button>
 </view>

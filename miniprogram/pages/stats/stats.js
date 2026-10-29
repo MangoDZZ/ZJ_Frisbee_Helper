@@ -1,6 +1,7 @@
 'use strict'
 
 const api = require('../../utils/api.js')
+const eventConfig = require('../../utils/event-config.js')
 const fmt = require('../../utils/format.js')
 const share = require('../../utils/share.js')
 
@@ -21,6 +22,7 @@ Page({
     loading: true,
     failMessage: '',
     eventName: '',
+    boardLabel: '积分榜',
     boards: [],
     totals: null,
     matchCount: 0,
@@ -58,6 +60,7 @@ Page({
           loading: false,
           failMessage: '',
           eventName: d.eventName,
+          boardLabel: eventConfig.boardLabel(d.eventType),
           totals: d.totals || { matchCount: 0, pointCount: 0, playerCount: 0 },
           matchCount: total,
           boards: buildBoards(rows),

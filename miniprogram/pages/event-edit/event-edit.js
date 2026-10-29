@@ -1,8 +1,15 @@
 'use strict'
 
 const api = require('../../utils/api.js')
+const eventConfig = require('../../utils/event-config.js')
 const fmt = require('../../utils/format.js')
 const signupFields = require('../../utils/signup-fields.js')
+
+/** 类型说明：选不同的类型时下面的提示跟着换，免得建错了才发现。 */
+const TYPE_HINTS = {
+  personal: '个人积分赛：可以开多场赛事、每场各自分队，名次按个人积分排。',
+  classic: '经典 HAT：一个活动只分一次队、只有一个赛事，名次按队伍胜负排。',
+}
 
 Page({
   data: {
@@ -10,7 +17,13 @@ Page({
     editing: false,
     submitting: false,
     fieldRows: signupFields.configRows(null),
+    typeOptions: Object.keys(eventConfig.TYPES).map(function (k) {
+      return { key: k, label: eventConfig.TYPES[k] }
+    }),
+    typeHint: TYPE_HINTS[eventConfig.TYPE_PERSONAL],
     form: {
+      // 活动类型只在新建时可选，之后不可改（见云函数 hat-event 的 update）
+      type: eventConfig.TYPE_PERSONAL,
       name: '',
       location: '',
       startDate: '',
@@ -92,6 +105,16 @@ Page({
     this.setData({ 'form.groupOnly': !!e.detail.value })
   },
 
+  /** 选活动类型（只在新建时可见）。 */
+  pickType: function (e) {
+    const type = e.currentTarget.dataset.type
+    if (!eventConfig.TYPES[type]) return
+    this.setData({
+      'form.type': type,
+      typeHint: TYPE_HINTS[type] || '',
+    })
+  },
+
   /**
    * 报名表字段的两个开关：采集 / 必填。
    *
@@ -156,6 +179,8 @@ Page({
       signupFields: this.collectSignupFields(),
       visibility: f.groupOnly ? 'group' : 'public',
     }
+    // 类型只在新建时提交：编辑页不显示这个选择器，云函数也不会改它
+    if (!this.data.editing) payload.type = f.type
 
     const that = this
     this.setData({ submitting: true })

@@ -1,6 +1,7 @@
 'use strict'
 
 const api = require('../../utils/api.js')
+const eventConfig = require('../../utils/event-config.js')
 const fmt = require('../../utils/format.js')
 
 const LEVEL_SHEET = ['L1', 'L2', 'L3', 'L4', 'L5', '恢复为自评水平']
@@ -13,6 +14,7 @@ Page({
     event: null,
     statusText: '',
     isOwner: false,
+    boardLabel: '积分榜',
     roster: [],
     constraints: [],
     summary: '',
@@ -49,6 +51,7 @@ Page({
         that.setData({
           event: d.event,
           statusText: fmt.statusText(d.event.status),
+          boardLabel: eventConfig.boardLabel(d.event.type),
           isOwner: !!d.isOwner,
         })
         if (!d.canManage) {

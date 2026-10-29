@@ -1,6 +1,7 @@
 'use strict'
 
 const api = require('../../utils/api.js')
+const eventConfig = require('../../utils/event-config.js')
 const fmt = require('../../utils/format.js')
 const share = require('../../utils/share.js')
 
@@ -12,6 +13,7 @@ Page({
     loading: true,
     failMessage: '',
     event: null,
+    boardLabel: '积分榜',
     isOwner: false,
     canManage: false,
     mySignup: null,
@@ -67,6 +69,7 @@ Page({
           loading: false,
           failMessage: '',
           event: e,
+          boardLabel: eventConfig.boardLabel(e.type),
           // 服务端认了口令会回传它，之后分享给别人才带得出去
           shareToken: d.shareToken || that.data.shareToken,
           isOwner: !!d.isOwner,

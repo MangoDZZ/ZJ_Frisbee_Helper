@@ -47,7 +47,7 @@
     <view wx:if="{{division.published}}" class="card">
       <view class="btn-bar">
         <button class="btn btn-ghost btn-sm" bindtap="goMatches">比赛记录</button>
-        <button class="btn btn-plain btn-sm" bindtap="goLeaderboard">积分榜</button>
+        <button class="btn btn-plain btn-sm" bindtap="goLeaderboard">{{boardLabel}}</button>
       </view>
     </view>
 

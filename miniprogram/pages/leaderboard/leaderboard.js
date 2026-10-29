@@ -1,6 +1,7 @@
 'use strict'
 
 const api = require('../../utils/api.js')
+const eventConfig = require('../../utils/event-config.js')
 const fmt = require('../../utils/format.js')
 const share = require('../../utils/share.js')
 
@@ -10,6 +11,14 @@ Page({
     loading: true,
     failMessage: '',
     eventName: '',
+    // personal = 个人积分榜；team = 经典 HAT 的队伍战绩
+    mode: 'personal',
+    eventType: 'personal',
+    boardLabel: '积分榜',
+    tournamentName: '',
+    hasDivision: false,
+    matchCount: 0,
+    teams: [],
     rows: [],
     totals: null,
     tournamentCount: 0,
@@ -32,7 +41,7 @@ Page({
 
   onShareAppMessage: function () {
     return share.withImage({
-      title: (this.data.eventName || '飞盘 HAT') + ' 积分榜',
+      title: (this.data.eventName || '飞盘 HAT') + ' ' + this.data.boardLabel,
       path: '/pages/leaderboard/leaderboard?eventId=' + this.data.eventId,
     })
   },
@@ -42,10 +51,25 @@ Page({
     return api.match('leaderboard', { eventId: this.data.eventId },
       { loading: false, toastError: false })
       .then(function (d) {
+        const mode = d.mode === 'team' ? 'team' : 'personal'
+        const boardLabel = eventConfig.boardLabel(d.eventType)
+        // 经典 HAT 这一页显示的是队伍胜负，导航标题跟着类型走
+        wx.setNavigationBarTitle({ title: boardLabel })
         that.setData({
           loading: false,
           failMessage: '',
+          mode: mode,
+          eventType: d.eventType || 'personal',
+          boardLabel: boardLabel,
           eventName: d.eventName,
+          tournamentName: d.tournamentName || '',
+          hasDivision: !!d.hasDivision,
+          matchCount: d.matchCount || 0,
+          teams: (d.teams || []).map(function (t) {
+            return Object.assign({}, t, {
+              diffText: (t.diff > 0 ? '+' : '') + t.diff,
+            })
+          }),
           totals: d.totals || { matchCount: 0, playedCount: 0, playerCount: 0 },
           tournamentCount: d.tournamentCount || 0,
           liveMatchCount: d.liveMatchCount || 0,

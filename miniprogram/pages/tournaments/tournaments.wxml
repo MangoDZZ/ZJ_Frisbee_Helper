@@ -40,6 +40,7 @@
 </view>
 
 <view wx:if="{{!loading && !failMessage}}" class="footer-bar">
-  <button class="btn btn-plain" bindtap="goLeaderboard">积分榜</button>
-  <button wx:if="{{isOrganizer}}" class="btn" bindtap="addTournament">新建赛事</button>
+  <button class="btn btn-plain" bindtap="goLeaderboard">{{boardLabel}}</button>
+  <button wx:if="{{isOrganizer && (eventType !== 'classic' || list.length === 0)}}"
+          class="btn" bindtap="addTournament">新建赛事</button>
 </view>

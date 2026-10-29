@@ -117,5 +117,5 @@
 </view>
 
 <view wx:if="{{!loading && !failMessage}}" class="footer-bar">
-  <button class="btn btn-plain" bindtap="goLeaderboard">积分榜</button>
+  <button class="btn btn-plain" bindtap="goLeaderboard">{{boardLabel}}</button>
 </view>

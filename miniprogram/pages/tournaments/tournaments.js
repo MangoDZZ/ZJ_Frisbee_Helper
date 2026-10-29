@@ -1,6 +1,7 @@
 'use strict'
 
 const api = require('../../utils/api.js')
+const eventConfig = require('../../utils/event-config.js')
 const fmt = require('../../utils/format.js')
 
 Page({
@@ -10,6 +11,9 @@ Page({
     failMessage: '',
     isOrganizer: false,
     eventName: '',
+    // 名次页的入口文案跟着活动类型走（经典 HAT 是「战绩」）
+    eventType: 'personal',
+    boardLabel: '积分榜',
     list: [],
   },
 
@@ -35,6 +39,8 @@ Page({
           failMessage: '',
           isOrganizer: d.isOrganizer,
           eventName: d.eventName,
+          eventType: d.eventType || 'personal',
+          boardLabel: eventConfig.boardLabel(d.eventType),
           list: (d.list || []).map(function (t, i) {
             return Object.assign({}, t, {
               seq: i + 1,

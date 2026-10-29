@@ -15,6 +15,7 @@ const cloud = require('wx-server-sdk')
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 
 const common = require('./lib/common.js')
+const eventConfig = require('./lib/event-config.js')
 const score = require('./lib/score.js')
 const roles = require('./lib/roles.js')
 const store = require('./lib/store.js')
@@ -440,6 +441,59 @@ function requireManage (evt, r) {
   return null
 }
 
+/**
+ * 经典 HAT 的名次：按队伍列胜负与净胜分。
+ *
+ * 这类赛事一个活动只有一个赛事、一份分队，所以名次就是"哪支队伍赢得多"，
+ * 而不是"谁的积分高"。比赛记录本身与个人积分赛完全相同，所以数据来源不变，
+ * 只是换了个聚合口径（lib/score.js 的 computeTeamRecords，比赛列表页也在用）。
+ *
+ * 排序刻意按**队伍序号**而不是按胜负：分发名单就是按序号念的，人到现场要能
+ * 一眼找到自己队；谁第一由胜负列自己说话。
+ */
+async function teamLeaderboard (evt, allMatches, liveCount, isOrganizer) {
+  const res = await tournaments.where({ eventId: evt._id })
+    .orderBy('createTime', 'asc').limit(1).get()
+  const tour = (res.data && res.data[0]) || null
+
+  let division = null
+  if (tour) {
+    // 与比赛列表页同口径：管理身份看最新一份，其他人只看已发布的
+    const byTour = await loadDivisionByTournament(evt._id, !isOrganizer)
+    division = byTour[tour._id] || null
+  }
+  const mine = tour
+    ? allMatches.filter(function (m) { return m.tournamentId === tour._id })
+    : []
+  const records = division ? score.computeTeamRecords(mine, division) : []
+  records.sort(function (a, b) { return a.index - b.index })
+
+  return {
+    mode: 'team',
+    eventType: eventConfig.TYPE_CLASSIC,
+    isOrganizer: isOrganizer,
+    eventName: evt.name,
+    tournamentName: tour ? tour.name : '',
+    tournamentCount: tour ? 1 : 0,
+    // 有赛事但没分队时，页面要能说清"还没分队"而不是显示一个空表
+    hasDivision: !!division,
+    liveMatchCount: liveCount,
+    matchCount: mine.length,
+    teams: records.map(function (t) {
+      return {
+        index: t.index,
+        name: t.name,
+        played: t.won + t.lost,
+        won: t.won,
+        lost: t.lost,
+        scoreFor: t.scoreFor,
+        scoreAgainst: t.scoreAgainst,
+        diff: t.scoreFor - t.scoreAgainst,
+      }
+    }),
+  }
+}
+
 const actions = {
   async saveMatch (d, r) {
     const t = await store.loadTournament(db, d.tournamentId)
@@ -614,6 +668,7 @@ const actions = {
       canScore: canScore,
       tournamentName: tour.name,
       eventId: tour.eventId,
+      eventType: eventConfig.typeOf(evt),
       // 赛事级规则：记分页要靠它画时间轴、判断能不能结束
       rules: matchRules.normalizeRules(tour.matchRules),
       list: list,
@@ -695,6 +750,10 @@ const actions = {
   /**
    * 积分榜：整个活动的汇总，把该活动下所有赛事的得分按人合并。
    * 实时推导，不读任何存量积分字段。返回里不含球员水平。
+   *
+   * 经典 HAT 走另一条路：那个赛制只分一次队、只有一个赛事，名次要按**队伍胜负**
+   * 算（mode: 'team'），个人积分对它没有意义。但比赛记录和得分助攻榜完全一样，
+   * 所以两种模式的比赛数据是同一份。
    */
   async leaderboard (d, r) {
     const e = await store.loadEvent(db, d.eventId)
@@ -711,12 +770,7 @@ const actions = {
       return err('DIVISION_NOT_PUBLISHED', '分队结果还没发布')
     }
 
-    const su = await store.loadSignups(db, evt._id)
     const rows = await loadMatchesOfEvent(evt._id)
-    const draws = await loadDraws(evt._id)
-    const standings = score.computeStandings(rows, su.byId, drawsToAdjustments(draws))
-
-    const tourCount = await tournaments.where({ eventId: evt._id }).count()
 
     // 比赛中的比赛也计分（否则记分员忘了点「结束比赛」就会静默少分），
     // 但要把场次数告诉前端，免得组织者以为数字已经定稿。
@@ -725,6 +779,16 @@ const actions = {
       if (matchStatus(rows[i].status) === 'live') liveCount++
     }
 
+    if (eventConfig.isClassic(evt)) {
+      return ok(await teamLeaderboard(evt, rows, liveCount, isOrganizer))
+    }
+
+    const su = await store.loadSignups(db, evt._id)
+    const draws = await loadDraws(evt._id)
+    const standings = score.computeStandings(rows, su.byId, drawsToAdjustments(draws))
+
+    const tourCount = await tournaments.where({ eventId: evt._id }).count()
+
     // 最近触发的随机事件，让参与者也能看到"这几分是怎么来的"（趣味性全在这儿）。
     // 倒序取最近若干条，完整历史走 listDraws。
     const recentDraws = draws.slice(-20).reverse().map(function (d) {
@@ -732,6 +796,8 @@ const actions = {
     })
 
     return ok({
+      mode: 'personal',
+      eventType: eventConfig.typeOf(evt),
       isOrganizer: isOrganizer,
       eventName: evt.name,
       tournamentCount: tourCount.total,
@@ -765,6 +831,7 @@ const actions = {
 
     return ok({
       eventName: e.value.name,
+      eventType: eventConfig.typeOf(e.value),
       list: list.map(function (x) {
         return {
           _id: x._id,
@@ -883,6 +950,7 @@ const actions = {
     })
     return ok({
       eventName: evt.name,
+      eventType: eventConfig.typeOf(evt),
       isOrganizer: isOrganizer,
       total: list.length,
       list: out,
@@ -937,6 +1005,7 @@ const actions = {
     return ok({
       isOrganizer: isOrganizer,
       eventName: evt.name,
+      eventType: eventConfig.typeOf(evt),
       tournamentCount: tourCount.total,
       matchCount: (rows || []).length,
       rows: stats.rows,
@@ -960,13 +1029,19 @@ const actions = {
     }).limit(1).get()
     const mySignup = (mine.data && mine.data[0]) || null
     if (!mySignup) {
-      return ok({ found: false, eventName: evt.name, me: null })
+      return ok({
+        found: false, eventName: evt.name, eventType: eventConfig.typeOf(evt), me: null,
+      })
     }
 
     const su = await store.loadSignups(db, evt._id)
     const rows = await loadMatchesOfEvent(evt._id)
     const me = score.computeMyPoints(rows, su.byId, mySignup._id)
-    if (!me) return ok({ found: false, eventName: evt.name, me: null })
+    if (!me) {
+      return ok({
+        found: false, eventName: evt.name, eventType: eventConfig.typeOf(evt), me: null,
+      })
+    }
 
     // 逐场明细要带赛事名，组织者才看得懂「第 3 场」是哪一场。赛事不多，一次全取。
     const tours = await fetchAll(function () {
@@ -1011,6 +1086,7 @@ const actions = {
     return ok({
       found: true,
       eventName: evt.name,
+      eventType: eventConfig.typeOf(evt),
       tournamentCount: tours.length,
       me: {
         signupId: me.signupId,

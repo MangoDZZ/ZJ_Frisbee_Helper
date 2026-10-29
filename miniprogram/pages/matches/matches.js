@@ -1,6 +1,7 @@
 'use strict'
 
 const api = require('../../utils/api.js')
+const eventConfig = require('../../utils/event-config.js')
 const fmt = require('../../utils/format.js')
 const mr = require('../../utils/match-rules.js')
 
@@ -13,6 +14,8 @@ Page({
     loading: true,
     failMessage: '',
     isOwner: false,
+    boardLabel: '积分榜',
+    boardLinkText: '个人积分榜 ›',
     list: [],
     teamRecords: [],
 
@@ -49,6 +52,11 @@ Page({
           canScore: d.canScore,
           eventId: d.eventId,
           tournamentName: d.tournamentName,
+          boardLabel: eventConfig.boardLabel(d.eventType),
+          // 这张卡本身已经是队伍战绩，链接就不要再叫「个人积分榜」了
+          boardLinkText: d.eventType === eventConfig.TYPE_CLASSIC
+            ? '完整战绩 ›'
+            : '个人积分榜 ›',
           rules: rules,
           rulesText: rulesSummary(rules),
           list: (d.list || []).map(function (m, i) { return decorate(m, i, rules) }),

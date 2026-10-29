@@ -136,13 +136,21 @@ const actions = {
     // 一般用户只能报名，不能发起活动。
     if (!roles.canCreateEvent(r)) return err('FORBIDDEN', '只有组织者可以发起活动')
 
+    // 活动类型只在创建时确定，之后不可改：它决定了"只能有一个赛事"这类结构约束，
+    // 中途改会把已录入的赛事/比赛记录留在说不清的状态里（update 里根本不含 type）。
+    const type = d.type === undefined || d.type === null || d.type === ''
+      ? eventConfig.TYPE_PERSONAL
+      : String(d.type)
+    if (!eventConfig.TYPES[type]) {
+      return err('INVALID_INPUT', '未知的活动类型：' + type)
+    }
+
     const v = validateForm(d)
     if (v.error) return v.error
 
     const now = Date.now()
     const doc = Object.assign({}, v.value, {
-      // 活动类型：当前只有「个人积分赛」，落库是为了以后加别的类型时能区分
-      type: eventConfig.TYPE_PERSONAL,
+      type: type,
       ownerOpenid: r.openid,
       status: 'open',
       signupCount: 0,

@@ -150,6 +150,32 @@ add('创建活动：表单校验', async function () {
     'INVALID_INPUT', '截止晚于开始')
 })
 
+add('创建活动：类型落库，未知类型被拒', async function () {
+  grantOrganizer(OWNER)
+  // 不传类型 = 个人积分赛，这样旧版前端（不知道 type）建出来的活动行为不变
+  const a = await createEvent()
+  eq(mock.get('events', a).type, 'personal')
+
+  const b = await createEvent({ name: '经典 HAT 局', type: 'classic' })
+  eq(mock.get('events', b).type, 'classic')
+  const d = await expectOk(as(OWNER, hatEvent, 'detail', { eventId: b }))
+  eq(d.event.type, 'classic')
+  eq(d.event.typeLabel, '经典 HAT')
+
+  await expectErr(as(OWNER, hatEvent, 'create', eventForm({ type: 'league' })),
+    'INVALID_INPUT', '未知类型')
+})
+
+add('编辑活动不会改类型', async function () {
+  grantOrganizer(OWNER)
+  const id = await createEvent({ type: 'classic' })
+  // 编辑页根本不提交 type；就算提交了也不该生效——类型决定了"只能有一个赛事"
+  await expectOk(as(OWNER, hatEvent, 'update', Object.assign(
+    { eventId: id }, eventForm({ type: 'personal', name: '改个名字' }))))
+  eq(mock.get('events', id).type, 'classic')
+  eq(mock.get('events', id).name, '改个名字')
+})
+
 add('活动可以跨天：结束时间晚于开始一天以上照样接受，且仍然可选', async function () {
   const start = Date.now() + 3 * DAY
 
@@ -988,7 +1014,7 @@ async function setupEvent(n, over) {
 async function setupTournament(teamSizes, opts) {
   const o = opts || {}
   const total = teamSizes.reduce(function (a, b) { return a + b }, 0)
-  const ev = await setupEvent(total)
+  const ev = await setupEvent(total, o.eventOver)
 
   const t = await expectOk(as(OWNER, hatTeam, 'createTournament', {
     eventId: ev.eventId,
@@ -1071,6 +1097,25 @@ add('创建赛事：名称与队伍数校验', async function () {
     Object.assign({}, base, { name: 'x', teamCount: 1 })), 'INVALID_INPUT', '1 队')
   await expectErr(as(OWNER, hatTeam, 'createTournament',
     Object.assign({}, base, { name: 'x', teamCount: 2.5 })), 'INVALID_INPUT', '非整数')
+})
+
+add('经典 HAT：只允许一个赛事', async function () {
+  const ev = await setupEvent(6, { type: 'classic' })
+  const base = { eventId: ev.eventId, teamCount: 2, attendeeIds: ev.ids }
+  await expectOk(as(OWNER, hatTeam, 'createTournament',
+    Object.assign({}, base, { name: '第 1 场' })))
+  await expectErr(as(OWNER, hatTeam, 'createTournament',
+    Object.assign({}, base, { name: '第 2 场' })),
+    'CLASSIC_SINGLE_TOURNAMENT', '经典 HAT 不能开第二场赛事')
+
+  // 但"重新分队"仍然允许：那只是修正同一场赛事的名单，不算再分一次
+  const list = await expectOk(as(OWNER, hatTeam, 'listTournaments', { eventId: ev.eventId }))
+  eq(list.eventType, 'classic')
+  await expectOk(as(OWNER, hatTeam, 'saveDivision', {
+    tournamentId: list.list[0]._id,
+    teams: [{ name: 'A', memberIds: ev.ids.slice(0, 3) },
+      { name: 'B', memberIds: ev.ids.slice(3) }],
+  }), '重新分队')
 })
 
 add('一个活动可以开多场赛事，各自赛前检录名单不同', async function () {
@@ -1876,6 +1921,62 @@ add('积分榜：积分相同时按得分+助攻总数排名，且与数据页�
 
   // 仍然是公开数据，不能顺带把水平带出去
   ok(JSON.stringify(board).indexOf('"level"') < 0, '积分榜不该带 level')
+})
+
+add('个人积分赛的积分榜仍然按个人排名', async function () {
+  const ctx = await setupTournament([2, 2])
+  await expectOk(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, {})))
+  const board = await expectOk(as(OWNER, hatMatch, 'leaderboard', { eventId: ctx.eventId }))
+  eq(board.mode, 'personal')
+  eq(board.rows.length, 4)
+  ok(!board.teams, '个人榜不该带队伍战绩')
+})
+
+add('经典 HAT：名次页改为队伍战绩，按队伍顺序列胜负与净胜分', async function () {
+  const ctx = await setupTournament([2, 2], { eventOver: { type: 'classic' } })
+
+  // 队 1 赢 15:10；下一场队 1 输 11:13 → 各 1 胜 1 负，净胜分 +3 / -3
+  await expectOk(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, { scoreA: 15, scoreB: 10 })))
+  await expectOk(as(OWNER, hatMatch, 'saveMatch', matchData(ctx, { scoreA: 11, scoreB: 13 })))
+
+  const board = await expectOk(as(OWNER, hatMatch, 'leaderboard', { eventId: ctx.eventId }))
+  eq(board.mode, 'team')
+  eq(board.eventType, 'classic')
+  eq(board.matchCount, 2)
+  eq(board.teams.length, 2)
+
+  // 按队伍序号而不是胜负排序：分发名单是按序号念的
+  eq(board.teams[0].name, '1队')
+  eq(board.teams[0].won, 1)
+  eq(board.teams[0].lost, 1)
+  eq(board.teams[0].scoreFor, 26)
+  eq(board.teams[0].scoreAgainst, 23)
+  eq(board.teams[0].diff, 3)
+
+  eq(board.teams[1].name, '2队')
+  eq(board.teams[1].won, 1)
+  eq(board.teams[1].lost, 1)
+  eq(board.teams[1].diff, -3)
+
+  // 参赛者（非组织者）看到的是同一份数据，且仍然不带球员水平
+  mock.setOpenid('player-0')
+  const pub = await expectOk(as('player-0', hatMatch, 'leaderboard', { eventId: ctx.eventId }))
+  eq(pub.mode, 'team')
+  eq(pub.teams.length, 2)
+  ok(JSON.stringify(pub).indexOf('"level"') < 0, '战绩榜不该带 level')
+})
+
+add('经典 HAT：还没分队时不报错，明确告诉前端还没分队', async function () {
+  const ev = await setupEvent(4, { type: 'classic' })
+  const t = await expectOk(as(OWNER, hatTeam, 'createTournament', {
+    eventId: ev.eventId, name: '第 1 场', teamCount: 2, attendeeIds: ev.ids,
+  }))
+  const board = await expectOk(as(OWNER, hatMatch, 'leaderboard', { eventId: ev.eventId }))
+  eq(board.mode, 'team')
+  eq(board.hasDivision, false)
+  eq(board.teams.length, 0)
+  eq(board.matchCount, 0)
+  ok(t._id, '赛事建出来了')
 })
 
 add('平局与非法比分被拒', async function () {

@@ -6,6 +6,18 @@
              bindinput="onInput" placeholder="例：周六晚 HAT 局" maxlength="40" />
     </view>
 
+    <!-- 活动类型只在新建时可选：它决定"只能有一个赛事"这类结构约束，
+         改已有的活动会把它已录入的赛事留在说不清的状态里。 -->
+    <view wx:if="{{!editing}}" class="field">
+      <view class="field-label">活动类型 <text class="req">*</text></view>
+      <view class="type-row">
+        <view wx:for="{{typeOptions}}" wx:key="key"
+              class="type-chip {{form.type === item.key ? 'type-chip-on' : ''}}"
+              data-type="{{item.key}}" bindtap="pickType">{{item.label}}</view>
+      </view>
+      <view class="field-hint">{{typeHint}}</view>
+    </view>
+
     <view class="field">
       <view class="field-label">地点</view>
       <input class="field-input" value="{{form.location}}" data-field="location"

@@ -24,8 +24,8 @@ const sharedDir = path.join(root, 'shared')
 const TARGETS = {
   'hat-event': ['common.js', 'event-config.js', 'roles.js', 'store.js'],
   'hat-signup': ['common.js', 'event-config.js', 'roles.js', 'store.js'],
-  'hat-team': ['common.js', 'roles.js', 'store.js'],
-  'hat-match': ['common.js', 'match-rules.js', 'roles.js', 'store.js'],
+  'hat-team': ['common.js', 'event-config.js', 'roles.js', 'store.js'],
+  'hat-match': ['common.js', 'event-config.js', 'match-rules.js', 'roles.js', 'store.js'],
   'hat-admin': ['common.js', 'roles.js'],
 }
 
@@ -37,7 +37,7 @@ const TARGETS = {
  * 它们都是生成物，唯一可改的地方仍然是 shared/。
  */
 const MINIPROGRAM_TARGETS = {
-  'miniprogram/utils': ['match-rules.js'],
+  'miniprogram/utils': ['event-config.js', 'match-rules.js'],
 }
 
 let written = 0

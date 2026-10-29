@@ -64,7 +64,7 @@
     <view wx:if="{{list.length > 0}}" class="card">
       <view class="row-between">
         <text class="card-title">队伍战绩</text>
-        <text class="muted small" bindtap="goLeaderboard">个人积分榜 ›</text>
+        <text class="muted small" bindtap="goLeaderboard">{{boardLinkText}}</text>
       </view>
       <view wx:for="{{teamRecords}}" wx:key="index" class="rec-row">
         <text class="rec-name">{{item.name}}</text>
@@ -115,7 +115,7 @@
 </view>
 
 <view wx:if="{{!loading && !failMessage}}" class="footer-bar">
-  <button class="btn btn-plain" bindtap="goLeaderboard">积分榜</button>
+  <button class="btn btn-plain" bindtap="goLeaderboard">{{boardLabel}}</button>
   <button class="btn btn-ghost" bindtap="goStats">查看数据</button>
   <button wx:if="{{isOwner}}" class="btn" bindtap="addMatch">记录比赛</button>
 </view>

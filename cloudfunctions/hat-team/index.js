@@ -17,6 +17,7 @@ const cloud = require('wx-server-sdk')
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 
 const common = require('./lib/common.js')
+const eventConfig = require('./lib/event-config.js')
 const roles = require('./lib/roles.js')
 const store = require('./lib/store.js')
 
@@ -122,6 +123,14 @@ const actions = {
     if (att.error) return att.error
 
     const existing = await tournaments.where({ eventId: evt._id }).count()
+    // 经典 HAT 是"到场分一次队然后打一轮"，所以整个活动只允许一个赛事。
+    // 这不是省略功能，而是这类赛制的定义：分两次队就不是同一批队伍在循环了。
+    // 录比赛之前仍然可以重新分队（saveDivision 会生成新版本），那只是修正，不算再分一次。
+    if (eventConfig.isClassic(evt) && existing.total >= 1) {
+      return err('CLASSIC_SINGLE_TOURNAMENT',
+        '经典 HAT 活动只分一次队，不能再建第二个赛事。' +
+        '要调整分队，直接在这场赛事里重新分队即可。')
+    }
     if (existing.total >= MAX_TOURNAMENTS) {
       return err('TOO_MANY', '一个活动最多 ' + MAX_TOURNAMENTS + ' 场赛事')
     }
@@ -215,7 +224,12 @@ const actions = {
       })
     }
 
-    return ok({ isOrganizer: isOrganizer, eventName: evt.name, list: list })
+    return ok({
+      isOrganizer: isOrganizer,
+      eventName: evt.name,
+      eventType: eventConfig.typeOf(evt),
+      list: list,
+    })
   },
 
   /** 赛事详情。赛前检录名单带水平只给管理身份——参与者看不到任何人的水平。 */
@@ -240,6 +254,7 @@ const actions = {
       isOrganizer: isOrganizer,
       eventId: tour.eventId,
       eventName: evt.name,
+      eventType: eventConfig.typeOf(evt),
       tournament: {
         _id: tour._id,
         name: tour.name,
@@ -462,7 +477,13 @@ const actions = {
     const res = await query.orderBy('version', 'desc').limit(1).get()
     const div = res.data && res.data[0]
     if (!div) {
-      return ok({ division: null, isOwner: isOrganizer, isOrganizer: isOrganizer })
+      return ok({
+        division: null,
+        isOwner: isOrganizer,
+        isOrganizer: isOrganizer,
+        eventId: tour.eventId,
+        eventType: eventConfig.typeOf(evt),
+      })
     }
 
     const su = await store.loadSignups(db, tour.eventId)
@@ -486,6 +507,7 @@ const actions = {
       canSeeLevel: seeLevel,
       tournamentName: tour.name,
       eventId: tour.eventId,
+      eventType: eventConfig.typeOf(evt),
       division: {
         _id: div._id,
         version: div.version,

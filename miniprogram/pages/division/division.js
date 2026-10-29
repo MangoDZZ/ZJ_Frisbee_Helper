@@ -2,6 +2,7 @@
 
 const api = require('../../utils/api.js')
 const divider = require('../../utils/divide.js')
+const eventConfig = require('../../utils/event-config.js')
 const share = require('../../utils/share.js')
 
 Page({
@@ -12,6 +13,7 @@ Page({
     failMessage: '',
     tournamentName: '',
     isOrganizer: false,
+    boardLabel: '积分榜',
     canSeeLevel: false,
     division: null,
     teams: [],
@@ -53,6 +55,7 @@ Page({
           eventId: d.eventId,
           tournamentName: d.tournament.name,
           isOrganizer: d.isOrganizer,
+          boardLabel: eventConfig.boardLabel(d.eventType),
           teamCount: d.tournament.teamCount,
           attendees: d.attendees,
         })

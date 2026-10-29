@@ -43,3 +43,25 @@
   transform-origin: center;
 }
 
+
+/* 活动类型：只有两个选项，用并排的按钮块比下拉更直白 */
+.type-row {
+  display: flex;
+  gap: 16rpx;
+}
+.type-chip {
+  flex: 1;
+  padding: 18rpx 0;
+  text-align: center;
+  font-size: 28rpx;
+  color: #4b5563;
+  background: #f4f5f7;
+  border: 2rpx solid #e5e7eb;
+  border-radius: 10rpx;
+}
+.type-chip-on {
+  color: #fff;
+  background: var(--theme);
+  border-color: var(--theme);
+  font-weight: 600;
+}

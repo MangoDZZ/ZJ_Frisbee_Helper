@@ -10,15 +10,21 @@
  */
 
 /**
- * 活动类型。当前只实现了「个人积分赛」；v1.1.3 之前创建的活动没有 type 字段，
- * 读取时一律按个人积分赛对待（见 typeOf）。
+ * 活动类型。v1.1.3 之前创建的活动没有 type 字段，读取时一律按个人积分赛对待
+ * （见 typeOf），所以加类型不会改动任何老活动的行为。
  *
- * 这个字段落库是为了以后加"班级赛""联赛"时能区分——不同类型采集的字段、
- * 积分规则都会不一样，等有了第二种类型再补就晚了。
+ * 两种类型的差别只在"怎么算名次"，分队算法、报名、记分方式完全相同：
+ *  - personal 个人积分赛：可以开多场赛事各自分队，名次按个人积分排
+ *  - classic  经典 HAT：一个活动只分一次队、一个赛事，名次按队伍胜负排
+ *
+ * 类型**创建后不可改**（见 hat-event 的 update）：它决定了"只能有一个赛事"这条
+ * 结构性约束，中途改会让已录入的赛事和比赛记录处在一个说不清语义的状态里。
  */
 const TYPE_PERSONAL = 'personal'
+const TYPE_CLASSIC = 'classic'
 const TYPES = {
   personal: '个人积分赛',
+  classic: '经典 HAT',
 }
 
 function typeOf (evt) {
@@ -28,6 +34,21 @@ function typeOf (evt) {
 
 function typeLabel (evt) {
   return TYPES[typeOf(evt)]
+}
+
+/** 经典 HAT：分一次队，名次看队伍胜负。 */
+function isClassic (evt) {
+  return typeOf(evt) === TYPE_CLASSIC
+}
+
+/**
+ * 名次页的入口文案。经典 HAT 那个页面显示的是队伍胜负，叫「积分榜」会误导，
+ * 所以文案跟着类型走——但这个判断只此一处，各页面都从这里取，免得又写散。
+ *
+ * @param {string} type 活动类型（'personal' / 'classic'）
+ */
+function boardLabel (type) {
+  return type === TYPE_CLASSIC ? '战绩' : '积分榜'
 }
 
 /**
@@ -180,9 +201,12 @@ function validateSignupValues (d, fields) {
 
 module.exports = {
   TYPE_PERSONAL: TYPE_PERSONAL,
+  TYPE_CLASSIC: TYPE_CLASSIC,
   TYPES: TYPES,
   typeOf: typeOf,
   typeLabel: typeLabel,
+  isClassic: isClassic,
+  boardLabel: boardLabel,
   LOCKED_FIELDS: LOCKED_FIELDS,
   CONFIGURABLE_FIELDS: CONFIGURABLE_FIELDS,
   DEFAULT_SIGNUP_FIELDS: DEFAULT_SIGNUP_FIELDS,

@@ -94,6 +94,39 @@
 /* 累计弃赛归零：这是解释"为什么分没了"，得让人看见 */
 .reset-text { color: #b4322c; }
 
+/* 经典 HAT 的队伍战绩：队伍名占满剩余宽度，三个数字列定宽对齐 */
+.tm-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  font-size: 28rpx;
+}
+.tm-num {
+  width: 80rpx;
+  flex: none;
+  text-align: center;
+  font-size: 28rpx;
+  color: #4b5563;
+}
+.tm-diff {
+  width: 130rpx;
+  flex: none;
+  text-align: right;
+  font-size: 30rpx;
+  font-weight: 600;
+}
+.diff-plus { color: #2f8f4e; }
+.diff-minus { color: #b4322c; }
+/* 表头那一行要和其他列一样小、一样灰，别被上面的字号和内边距带跑 */
+.lb-head .tm-name,
+.lb-head .tm-num,
+.lb-head .tm-diff {
+  font-size: 24rpx;
+  font-weight: 400;
+  color: #8a9099;
+}
+
 /* 随机事件列表 */
 .draw-row {
   display: flex;

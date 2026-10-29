@@ -1,6 +1,7 @@
 'use strict'
 
 const api = require('../../utils/api.js')
+const eventConfig = require('../../utils/event-config.js')
 const fmt = require('../../utils/format.js')
 
 /**
@@ -19,6 +20,7 @@ Page({
     loading: true,
     failMessage: '',
     eventName: '',
+    boardLabel: '积分榜',
     pool: [],              // 事件池
     draws: [],             // 已触发记录（新的在前）
     roster: [],            // 可以当触发对象的人
@@ -71,6 +73,7 @@ Page({
           loading: false,
           failMessage: '',
           eventName: r.pool.eventName,
+          boardLabel: eventConfig.boardLabel(r.pool.eventType),
           nameById: nameById,
           roster: roster,
           pool: (r.pool.list || []).map(decorate),

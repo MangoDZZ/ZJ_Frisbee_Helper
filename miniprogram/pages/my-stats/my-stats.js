@@ -1,6 +1,7 @@
 'use strict'
 
 const api = require('../../utils/api.js')
+const eventConfig = require('../../utils/event-config.js')
 const fmt = require('../../utils/format.js')
 
 /**
@@ -15,6 +16,7 @@ Page({
     loading: true,
     failMessage: '',
     eventName: '',
+    boardLabel: '积分榜',
     found: false,
     me: null,
     matches: [],
@@ -42,6 +44,7 @@ Page({
           loading: false,
           failMessage: '',
           eventName: d.eventName,
+          boardLabel: eventConfig.boardLabel(d.eventType),
           found: !!d.found,
           me: me,
           matches: me ? (me.matches || []).map(function (m) {
