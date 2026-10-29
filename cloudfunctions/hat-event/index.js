@@ -24,6 +24,7 @@ const _ = db.command
 
 const ok = common.ok
 const err = common.err
+const ensureEnvelope = common.ensureEnvelope
 const trimStr = common.trimStr
 const asInt = common.asInt
 const fetchAll = common.fetchAll
@@ -381,7 +382,7 @@ exports.main = async function (event) {
   try {
     // 角色只查一次，之后所有权限判定都是纯函数（列表页要逐条判权限）。
     const r = await roles.loadRoles(db, openid)
-    return await handler(event.data || {}, r)
+    return ensureEnvelope(await handler(event.data || {}, r), action)
   } catch (e) {
     // 合并路由后日志里必须带 action 名，否则排查时分不清是哪个分支报的。
     console.error('[hat-event] action=' + action, e)

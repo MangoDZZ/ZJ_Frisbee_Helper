@@ -32,6 +32,7 @@ const randomDraws = db.collection('randomDraws')
 
 const ok = common.ok
 const err = common.err
+const ensureEnvelope = common.ensureEnvelope
 const trimStr = common.trimStr
 const asInt = common.asInt
 const fetchAll = common.fetchAll
@@ -1113,7 +1114,7 @@ exports.main = async function (event) {
   try {
     // 角色只查一次，之后所有权限判定都是纯函数。
     const r = await roles.loadRoles(db, openid)
-    return await handler(event.data || {}, r)
+    return ensureEnvelope(await handler(event.data || {}, r), action)
   } catch (e) {
     console.error('[hat-match] action=' + action, e)
     return err('INTERNAL', (e && e.message) || '服务异常，请重试')

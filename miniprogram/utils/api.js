@@ -37,19 +37,21 @@ function call (name, action, data, opts) {
     data: { action: action, data: data || {} },
   }).then(function (res) {
     if (loading) wx.hideLoading()
-    const r = res && res.result
-    if (!r) {
-      const e = new Error('云函数 ' + name + ' 没有返回内容（' + action + '）')
-      e.code = 'EMPTY_RESULT'
+    const parsed = apiError.readEnvelope(res && res.result)
+    if (parsed.ok) return parsed.data
+
+    // 平台的失败原文优先交给翻译器，能认出"没部署/超时"这类可操作的原因
+    if (parsed.errMsg) {
+      const described = apiError.describeCallFailure(name, parsed.errMsg)
+      const e = new Error(described ? described.message
+        : apiError.fallbackMessage(name, action, parsed.errMsg))
+      e.code = described ? described.code : null
       throw e
     }
-    if (r.ok) return r.data
-    // 服务端带了 code/message 就直接用；万一信封缺字段，也别只说「操作失败」
-    const errInfo = r.error || {}
-    const e = new Error(errInfo.message ||
-      ('云函数 ' + name + ' 的 ' + action + ' 返回了失败，但没有说明原因'))
-    e.code = errInfo.code
-    e.detail = errInfo.detail || null
+
+    const e = new Error(parsed.message)
+    e.code = parsed.code
+    e.detail = parsed.detail || null
     throw e
   }).catch(function (e) {
     if (loading) wx.hideLoading()

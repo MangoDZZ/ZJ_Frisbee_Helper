@@ -122,6 +122,39 @@ function grantOrganizer(openid, name) {
 const tests = []
 function add(name, fn) { tests.push({ name: name, fn: fn }) }
 
+add('返回了非信封结构时会被包成可读的错误，而不是让客户端看到「操作失败」', async function () {
+  const shared = require('../shared/common.js')
+
+  // 正常信封原样放行（连 detail 都不动）
+  const good = shared.ok({ a: 1 })
+  eq(shared.ensureEnvelope(good, 'x'), good, '正常信封必须原样返回')
+
+  // 这一段故意触发兜底，把日志收走再断言，别让它污染测试输出
+  const logs = []
+  const realError = console.error
+  console.error = function () { logs.push(Array.prototype.join.call(arguments, ' ')) }
+  let bare, junk
+  try {
+    // 真实踩过的坑：纯模块的 {code, message} 被原样 return 出去
+    bare = shared.ensureEnvelope(
+      { code: 'INVALID_IMPORT', message: '第 22 行性别必须是男/女或 M/F' }, 'importSignups')
+    // 完全认不出来的：也要是一个合法信封，并带上 action 方便查日志
+    junk = shared.ensureEnvelope(undefined, 'importSignups')
+  } finally {
+    console.error = realError
+  }
+
+  eq(bare.ok, false)
+  eq(bare.error.code, 'INVALID_IMPORT')
+  eq(bare.error.message, '第 22 行性别必须是男/女或 M/F', '原因要原样传给前端')
+  ok(junk.ok === false && junk.error.code === 'BAD_RESULT')
+  ok(junk.error.message.indexOf('importSignups') >= 0, '要说是哪个 action')
+
+  // 服务端必须留下线索：没有日志的话，"返回了个怪东西"事后完全无法追查
+  eq(logs.length, 2)
+  ok(logs[0].indexOf('importSignups') >= 0 && logs[0].indexOf('非信封') >= 0)
+})
+
 add('创建活动：写入初始状态与名额', async function () {
   const id = await createEvent()
   const doc = mock.get('events', id)

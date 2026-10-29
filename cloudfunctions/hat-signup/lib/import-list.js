@@ -25,6 +25,22 @@ function headerKind (v) {
   return null
 }
 
+/**
+ * 把一行单元格描述成可读的一句话，用在"表头认不出来"的提示里。
+ * 空单元格跳过，每格最多 12 个字，最多列 6 格——目的是让用户一眼看出
+ * "哦我第一行写的是标题不是表头"，而不是把整行 XML 糊到屏幕上。
+ */
+function describeRow (row) {
+  const cells = []
+  const list = Array.isArray(row) ? row : []
+  for (let i = 0; i < list.length && cells.length < 6; i++) {
+    const s = text(list[i])
+    if (!s) continue
+    cells.push('「' + (s.length > 12 ? s.slice(0, 12) + '…' : s) + '」')
+  }
+  return cells.length > 0 ? cells.join('') : '（这一行是空的）'
+}
+
 function parseLevel (v) {
   const s = text(v).toUpperCase()
   const m = s.match(/^(?:L)?([1-5])$/)
@@ -37,6 +53,17 @@ function parseGender (v) {
   if (s === '男' || s === 'm' || s === 'male') return 'M'
   if (s === '女' || s === 'f' || s === 'female') return 'F'
   return null
+}
+
+/**
+ * 把一格的内容描述出来，用在"这格的格式不对"的提示里。
+ * 「第 22 行性别必须是男/女」还差一步才能定位——到底写的是什么？
+ * 真实例子：有人把性别填成了「烙」，光看列名根本想不到。
+ */
+function quoteCell (v) {
+  const s = text(v)
+  if (s === '') return '这一格是空的'
+  return '读到的是「' + (s.length > 12 ? s.slice(0, 12) + '…' : s) + '」'
 }
 
 function parseRows (rows) {
@@ -54,7 +81,11 @@ function parseRows (rows) {
     return {
       error: {
         code: 'INVALID_IMPORT',
-        message: '表头必须包含姓名、性别、能力（或水平）三列',
+        // 把"读到的第一行"原样带出来：表头认不出来最常见的两个原因是
+        // 第一行是合并的大标题、或者表头写成了别的词。只说"要包含三列"，
+        // 用户会以为自己的表头没问题。
+        message: '表头必须包含姓名、性别、能力（或水平）三列。' +
+          '读到的第一行是：' + describeRow(header),
       },
     }
   }
@@ -71,9 +102,13 @@ function parseRows (rows) {
     const level = parseLevel(row[columns.level])
     if (!name) errors.push('第 ' + line + ' 行缺少姓名')
     else if (name.length > 20) errors.push('第 ' + line + ' 行姓名超过 20 个字')
-    if (!gender) errors.push('第 ' + line + ' 行性别必须是男/女或 M/F')
+    if (!gender) {
+      errors.push('第 ' + line + ' 行性别必须是男/女或 M/F（' +
+        quoteCell(row[columns.gender]) + '）')
+    }
     if (level === null || level < MIN_LEVEL || level > MAX_LEVEL) {
-      errors.push('第 ' + line + ' 行能力必须是 L1-L5 或 1-5')
+      errors.push('第 ' + line + ' 行能力必须是 L1-L5 或 1-5（' +
+        quoteCell(row[columns.level]) + '）')
     }
     if (name && gender && level !== null) {
       list.push({

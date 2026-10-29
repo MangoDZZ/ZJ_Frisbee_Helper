@@ -24,6 +24,7 @@ const tournaments = db.collection('tournaments')
 
 const ok = common.ok
 const err = common.err
+const ensureEnvelope = common.ensureEnvelope
 const trimStr = common.trimStr
 const asInt = common.asInt
 const fetchAll = common.fetchAll
@@ -465,7 +466,12 @@ const actions = {
     }
 
     const parsed = importList.parseRows(rows)
-    if (parsed.error) return parsed.error
+    // 注意：parseRows 是纯模块，它的 error 只有 {code, message, detail}，**不是信封**。
+    // 直接 `return parsed.error` 会让云函数返回一个没有 ok/error 字段的对象，客户端
+    // 拿到的就是一句「操作失败」——第 22 行性别写错了这种能修的问题，看起来像系统坏了。
+    if (parsed.error) {
+      return err(parsed.error.code, parsed.error.message, parsed.error.detail)
+    }
     const list = parsed.value
     if (list.length > MAX_IMPORT_ROWS) {
       return err('INVALID_IMPORT', '一次最多导入 ' + MAX_IMPORT_ROWS + ' 人')
@@ -754,7 +760,7 @@ exports.main = async function (event) {
   try {
     // 角色只查一次，之后所有权限判定都是纯函数。
     const r = await roles.loadRoles(db, openid)
-    return await handler(event.data || {}, r)
+    return ensureEnvelope(await handler(event.data || {}, r), action)
   } catch (e) {
     console.error('[hat-signup] action=' + action, e)
     return err('INTERNAL', (e && e.message) || '服务异常，请重试')

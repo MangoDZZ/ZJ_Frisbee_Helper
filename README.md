@@ -175,7 +175,7 @@ hat-event  hat-signup  hat-team  hat-match  hat-admin
 
 | 弹窗里的错误码 | 意思 | 怎么处理 |
 | --- | --- | --- |
-| `INVALID_IMPORT`（带「第 N 行」） | 表格内容有问题，提示里会说明是缺姓名、性别写法不对还是能力超出 1-5 | 按行号改表格；超过 10 处会注明总数 |
+| `INVALID_IMPORT`（带「第 N 行」） | 表格内容有问题，提示里会说明是缺姓名、性别写法不对还是能力超出 1-5，并回显那一格**实际写了什么** | 按行号改表格；超过 10 处会注明总数 |
 | `INVALID_IMPORT`（「表头必须包含…」） | 第一行没认出「姓名 / 性别 / 能力」三列 | 表头写上这三列，或用「水平」「等级」代替「能力」 |
 | `INVALID_IMPORT`（「表格为空」「没有有效名单」） | 第一个工作表没内容，或全是空行 | 确认数据在**第一个**工作表里 |
 | `IMPORT_BAD_FILE` | 文件不是真正的 xlsx（常见于把 .xls 改后缀、加密文件） | 用 Excel 另存为 `.xlsx` 再传 |
@@ -577,6 +577,24 @@ page {
 4. `hat-event` 的 `detail()`：如果参与者自己也要看到
 
 代价是加字段麻烦一点，换来的是客户端没法往库里塞任意字段，敏感字段也不会因为忘了过滤而泄露。
+
+### 返回值一定要包成信封
+
+云函数每个 action **必须** return `ok(data)` 或 `err(code, message)`，也就是
+`{ ok: true, data }` 或 `{ ok: false, error: { code, message, detail } }`。
+前端只认这两种形状，别的一律会被当成"失败但没说原因"。
+
+这条不是洁癖，是真踩过：`importSignups` 曾经把 `lib/import-list.js` 返回的
+`{ code, message }`（纯模块的错误对象，**不是信封**）原样 `return` 出去，于是响应里
+既没有 `ok` 也没有 `error`，用户只看到一句「操作失败」——而真实原因是"表格第 22 行
+性别填成了「烙」"，一个字都没传出来。
+
+现在有两道保险：
+
+1. 每个云函数的 `main` 出口都过一遍 `common.ensureEnvelope()`：结构不对就当场包成
+   可读的错误，并在云函数日志里打 `[envelope] action=...` 留线索
+2. 小程序端 `utils/api-error.js` 的 `readEnvelope()` 能救回残缺信封（顶层直接带
+   `code`/`message` 的），救不回来才报"无法识别"，并附上原始内容摘要
 
 **如果这个字段应该由组织者决定采不采集**（像年龄/班级/学号那样），就别硬编码，加进
 `shared/event-config.js` 的 `CONFIGURABLE_FIELDS` 和 `miniprogram/utils/signup-fields.js` 的

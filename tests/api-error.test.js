@@ -62,4 +62,47 @@ ok(fallback.indexOf('cloud.callFunction:fail') < 0, '去掉了没意义的前缀
 ok(apiError.fallbackMessage('unknown-fn', 'x', '').indexOf('unknown-fn') >= 0,
   '没登记过的云函数名要原样带出来')
 
+// ---------------------------------------------------------------- 信封解析
+// 这里判错一次，用户看到的就是一句没有任何线索的「操作失败」。
+
+const okEnv = apiError.readEnvelope({ ok: true, data: { imported: 3 } })
+eq(okEnv.ok, true)
+eq(okEnv.data.imported, 3)
+
+const errEnv = apiError.readEnvelope({
+  ok: false,
+  error: { code: 'EVENT_FULL', message: '名额不够', detail: { remaining: 0 } },
+})
+eq(errEnv.ok, false)
+eq(errEnv.code, 'EVENT_FULL')
+eq(errEnv.message, '名额不够')
+eq(errEnv.detail.remaining, 0)
+
+// 真实踩过的坑：云函数忘了 err() 包装，把纯模块返回的 {code,message} 原样返回
+const bare = apiError.readEnvelope({ code: 'INVALID_IMPORT', message: '第 22 行性别必须是男/女或 M/F' })
+eq(bare.ok, false)
+eq(bare.code, 'INVALID_IMPORT')
+ok(bare.message.indexOf('第 22 行') >= 0, '残缺信封里的 message 必须被救回来')
+
+// 平台层塞进来的 errMsg 要单独走翻译，不能当成"没有说明原因"
+const platform = apiError.readEnvelope({
+  errMsg: 'cloud.callFunction:fail Invoking task timed out after 3 seconds',
+})
+eq(platform.ok, false)
+eq(platform.errMsg.indexOf('timed out') >= 0, true)
+eq(platform.code, null, '交给 describeCallFailure 去判断类别')
+
+// 完全认不出来的返回：至少把原文带出来，别变成「操作失败」
+const junk = apiError.readEnvelope({ foo: 'bar' })
+eq(junk.ok, false)
+eq(junk.code, 'BAD_ENVELOPE')
+ok(junk.message.indexOf('foo') >= 0 && junk.message.indexOf('bar') >= 0, '要带上原始内容')
+
+const empty = apiError.readEnvelope(undefined)
+eq(empty.code, 'EMPTY_RESULT')
+ok(empty.message.indexOf('没有返回内容') >= 0)
+
+// 超长内容要截断，否则弹窗滚不动
+eq(apiError.snippet('x'.repeat(400)).length <= 161, true)
+
 console.log('云函数报错翻译测试通过')

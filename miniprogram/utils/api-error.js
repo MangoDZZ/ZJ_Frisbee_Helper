@@ -76,8 +76,66 @@ function fallbackMessage (name, action, errMsg) {
   return '调用' + label + '云函数失败（' + action + '）：' + (raw || '没有返回原因')
 }
 
+/** 把任意返回值压缩成一段能放进弹窗的摘要。 */
+function snippet (value) {
+  let text = ''
+  try {
+    text = typeof value === 'string' ? value : JSON.stringify(value)
+  } catch (e) {
+    text = String(value)
+  }
+  if (!text) return '（空）'
+  return text.length > 160 ? text.slice(0, 160) + '…' : text
+}
+
+/**
+ * 解析云函数的返回信封。抽成纯函数是为了能测——这里一旦判错，
+ * 用户看到的就是一句没有任何线索的「操作失败」。
+ *
+ * 正常信封是 `{ok:true,data}` / `{ok:false,error:{code,message,detail}}`。
+ * 但代码里真的出现过"忘了包一层"的情况：云函数把纯模块返回的 `{code, message}`
+ * 原样 return 出去，于是 `ok` 和 `error` 都不存在，客户端什么也拿不到。
+ * 这种残缺信封必须救回来，而不是转成一句"没有说明原因"。
+ *
+ * @returns {{ok:true,data:any}|{ok:false,code:string|null,message?:string,detail?:any,errMsg?:string}}
+ */
+function readEnvelope (result) {
+  if (!result || typeof result !== 'object') {
+    return {
+      ok: false,
+      code: 'EMPTY_RESULT',
+      message: '云函数没有返回内容：' + snippet(result),
+    }
+  }
+  if (result.ok) return { ok: true, data: result.data }
+
+  const inner = result.error && typeof result.error === 'object' ? result.error : null
+  if (inner && inner.message) {
+    return { ok: false, code: inner.code || null, message: inner.message, detail: inner.detail || null }
+  }
+  // 漏了 err() 包装，直接把 {code, message} 当返回值
+  if (result.code && result.message) {
+    return {
+      ok: false,
+      code: result.code,
+      message: result.message,
+      detail: result.detail || null,
+    }
+  }
+  // 平台层塞进来的 errMsg，交给 describeCallFailure 翻译
+  if (result.errMsg) return { ok: false, code: null, errMsg: result.errMsg }
+
+  return {
+    ok: false,
+    code: 'BAD_ENVELOPE',
+    message: '云函数返回了无法识别的内容：' + snippet(result),
+  }
+}
+
 module.exports = {
   MODULE_LABEL: MODULE_LABEL,
   describeCallFailure: describeCallFailure,
   fallbackMessage: fallbackMessage,
+  readEnvelope: readEnvelope,
+  snippet: snippet,
 }

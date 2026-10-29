@@ -16,6 +16,29 @@ function err (code, message, detail) {
   return { ok: false, error: { code: code, message: message, detail: detail || null } }
 }
 
+/**
+ * 保证 action 的返回值一定是一个完整的信封。
+ *
+ * 为什么需要这道闸：`ok()` / `err()` 是手写的，很容易忘。真的发生过——导入名单时
+ * 把纯模块返回的 `{code, message}` 原样 `return` 出去，响应里既没有 `ok` 也没有
+ * `error`，客户端只能显示一句「操作失败」，而真实原因（表格第 22 行性别写错）
+ * 一个字都没传出去。这种错误在服务端看起来是"成功返回"，日志里也不会报错。
+ *
+ * 所以这里做两件事：结构不对就当场包成能看的错误，并打日志留线索。
+ * 它不改变任何正常返回——`{ ok: boolean }` 的东西原样放行。
+ */
+function ensureEnvelope (result, action) {
+  if (result && typeof result === 'object' && typeof result.ok === 'boolean') return result
+
+  console.error('[envelope] action=' + (action || '?') + ' 返回了非信封结构', result)
+  if (result && typeof result === 'object' && result.message) {
+    // 纯模块的错误对象：救回来，别把唯一的线索丢掉
+    return err(result.code || 'BAD_RESULT', result.message, result.detail)
+  }
+  return err('BAD_RESULT',
+    '服务内部返回了无法识别的内容（action=' + (action || '?') + '），请查看云函数日志')
+}
+
 function trimStr (v) { return typeof v === 'string' ? v.trim() : '' }
 
 /**
@@ -111,6 +134,7 @@ module.exports = {
   MAX_ROWS: MAX_ROWS,
   ok: ok,
   err: err,
+  ensureEnvelope: ensureEnvelope,
   trimStr: trimStr,
   asInt: asInt,
   fetchAll: fetchAll,
