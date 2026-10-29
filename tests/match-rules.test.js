@@ -273,47 +273,59 @@ test('软时限到点那一刻不改目标分——要等下一次得分完成',
   eq(s.targetReached, false, '11 分没到 13，不能结束')
 })
 
-test('软时限后的下一分把目标分改成"领先方 +1"', function () {
+test('软时限后的下一分把目标分改成"场上较高分 + 1"', function () {
+  // 60 分钟时 11:9，61 分钟 A 再得一分 → 12:9 → 目标变 13（12+1）
   const list = []
   for (let i = 0; i < 11; i++) list.push(['A', 20 * 60 + i])
   for (let i = 0; i < 9; i++) list.push(['B', 21 * 60 + i])
-  // 软时限 60 分之后，A 又得一分 → 12:9 → 目标变 13
   list.push(['A', 61 * 60])
   const s1 = state(pts(list), 61.5)
   eq(s1.target, 13, '12+1 = 13')
-  eq(s1.targetRaised, false, '与初始目标相同，等于没变')
+  eq(s1.targetRaised, true, '被软时限改写过')
 
-  // 换个更低的初始目标，才能看出它真的抬高了
-  const lowRules = Object.assign({}, R, { targetScore: 9, halftimeMinutes: 20 })
-  const list2 = []
-  for (let i = 0; i < 5; i++) list2.push(['A', 10 * 60 + i])
-  for (let i = 0; i < 4; i++) list2.push(['B', 11 * 60 + i])
-  list2.push(['A', 61 * 60])            // 软时限后：6:4 → 目标 7
-  const s2 = mr.clockState(lowRules, START, pts(list2), START + 62 * MIN)
-  eq(s2.baseTarget, 9)
-  eq(s2.target, 9, '7 比初始目标 9 小，取较大的那个')
-  eq(s2.targetRaised, false, '没有真的抬高')
+  // 关键是**可以比初始目标更低**：8:5 打到 9:5 就把目标定成 10
+  const low = []
+  for (let i = 0; i < 8; i++) low.push(['A', 20 * 60 + i])
+  for (let i = 0; i < 5; i++) low.push(['B', 21 * 60 + i])
+  low.push(['A', 61 * 60])
+  const s2 = state(pts(low), 61.5)
+  eq(s2.baseTarget, 13, '初始目标仍是 13')
+  eq(s2.target, 10, '软时限后 9:5 → 目标 10，比初始目标低')
+  eq(s2.targetRaised, true)
+  ok(s2.target < s2.baseTarget, '软时限的意义就是让比赛早点收')
+  eq(s2.targetReached, false, '当前 9 分，还没到 10')
 
-  // 领先方分数已经超过初始目标时才会抬高
-  const list3 = []
-  for (let i = 0; i < 9; i++) list3.push(['A', 10 * 60 + i])
-  list3.push(['B', 62 * 60])            // 软时限后 B 得分：9:1 → 目标 10
-  const s3 = mr.clockState(lowRules, START, pts(list3), START + 63 * MIN)
-  eq(s3.target, 10, '9+1 = 10')
-  eq(s3.targetRaised, true)
-  eq(s3.targetReached, false, '当前 9 分，还没到 10')
-  eq(s3.canFinish, false)
+  // 到 10 分就能结束了
+  low.push(['A', 62 * 60])
+  const s3 = state(pts(low), 62.5)
+  eq(s3.targetReached, true)
+  ok(s3.canFinish)
+  eq(mr.clockHint(s3), '已达到软时限后的目标分 10，可以结束比赛')
 })
 
-test('软时限后打成平手时，目标分按平分 +1', function () {
-  const rules = Object.assign({}, R, { targetScore: 9, halftimeMinutes: 20 })
+test('软时限改写后目标分固定下来，不会随着继续得分往上飘', function () {
   const list = []
-  for (let i = 0; i < 5; i++) list.push(['A', 10 * 60 + i * 2])
-  for (let i = 0; i < 5; i++) list.push(['B', 11 * 60 + i * 2])
-  list.push(['A', 62 * 60])             // 6:5 → 目标 7
-  const s = mr.clockState(rules, START, pts(list), START + 63 * MIN)
-  eq(s.target, 9, '7 小于初始 9，取 9')
-  ok(s.scoreA === 6 && s.scoreB === 5)
+  for (let i = 0; i < 8; i++) list.push(['A', 20 * 60 + i])
+  for (let i = 0; i < 5; i++) list.push(['B', 21 * 60 + i])
+  list.push(['A', 61 * 60])     // 9:5 → 目标 10
+  list.push(['B', 62 * 60])     // 9:6
+  const s = state(pts(list), 62.5)
+  eq(s.target, 10, '目标仍在软时限后第一分那一刻定下，不会变成 10 或 11 以外的值')
+  eq(s.targetRaisedAtSec, 61 * 60)
+})
+
+test('软时限后从平手局面继续：新目标 = 平分者 + 1', function () {
+  // 软时限 60 分时 4:4，61 分钟 A 得分 → 5:4 → 目标 6
+  const list = []
+  for (let i = 0; i < 4; i++) list.push(['A', 10 * 60 + i * 2])
+  for (let i = 0; i < 4; i++) list.push(['B', 11 * 60 + i * 2])
+  list.push(['A', 61 * 60])
+  const s = mr.clockState(R, START, pts(list), START + 61.5 * MIN)
+  eq(s.scoreA, 5)
+  eq(s.scoreB, 4)
+  eq(s.target, 6, '5+1 = 6')
+  eq(s.targetRaised, true)
+  eq(s.targetReached, false)
 })
 
 test('达到目标分 → 可以结束，提示文案点明目标分', function () {

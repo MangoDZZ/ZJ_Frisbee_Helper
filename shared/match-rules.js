@@ -225,7 +225,14 @@ function clockState (rules, startedAt, points, now) {
     }
   }
 
-  const target = raisedTarget === null ? baseTarget : Math.max(baseTarget, raisedTarget)
+  /*
+   * 软时限改写目标分：**直接取"场上较高分 + 1"**，不跟初始目标取较大值。
+   *
+   * 这正是软时限的意义——60 分钟时 8:5，下一分打完 9:5 就把目标定成 10，
+   * 比赛早点收；如果取 max(13, 10) 就永远是 13，软时限等于没设。
+   * （v1.1.5 修的就是这个：先前版本写成了取较大值，组织者看到目标分纹丝不动。）
+   */
+  const target = raisedTarget === null ? baseTarget : raisedTarget
 
   // 中场条件：时间中场与分数分支取较早者。时间中场不设时只看分数分支；
   // 时间分支只要"到点"就算，不必等某一次得分——否则一直不得分就永远不到中场。
@@ -262,7 +269,8 @@ function clockState (rules, startedAt, points, now) {
     baseTarget: baseTarget,
     halfTarget: halfTarget,
     target: target,
-    targetRaised: raisedTarget !== null && target > baseTarget,
+    // 是否**已被软时限改写**（不是"比初始目标大"——改写后可能更小）
+    targetRaised: raisedTarget !== null,
     targetRaisedAtSec: raisedAtSec,
     halfReached: halfReached,
     halfAtSec: halfAtSec,
@@ -291,7 +299,7 @@ function clockHint (state) {
   if (state.tieAtHardCap) return '已到硬时限但比分相同，请继续记到分出胜负'
   if (state.targetReached) {
     return state.targetRaised
-      ? '已达到软时限后的新目标分，可以结束比赛'
+      ? '已达到软时限后的目标分 ' + state.target + '，可以结束比赛'
       : '已达到目标分 ' + state.target + '，可以结束比赛'
   }
   if (state.hardReached) return '已到硬时限，可以结束比赛'
